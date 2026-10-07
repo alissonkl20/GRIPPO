@@ -4,6 +4,8 @@
 
 O GRIPPO ajuda no fluxo do dia a dia com **linguagem natural e contexto semântico do repositório** — não substitui o Git nem abre shell livre. O harness lê o estado real (`git`), expõe **ferramentas estruturadas** e **skills** que ensinam o modelo *como* agir em cada tarefa.
 
+Em **~4 GB de RAM**, o Ollama não “pensa” o Git inteiro: usa um [**mapa neural simbólico**](./docs/NEURAL_MAP.md) — intenção leve, visão rápida do repo, busca na skill certa e só então um **micro-plano** (poucos tokens). Diagrama: [GRIPPO-neural-map.excalidraw](./docs/diagrams/GRIPPO-neural-map.excalidraw).
+
 ## Ideia inicial (MVP)
 
 Você abre o GRIPPO no repositório e pede coisas simples, por exemplo:
@@ -89,6 +91,7 @@ grippo doctor                   # repo saudável? conflitos? detached?
 - [ARCHITECTURE.md](./docs/ARCHITECTURE.md) — runtime, tools, agent loop, policy
 - [SKILLS.md](./docs/SKILLS.md) — como escrever skills semânticas para o MVP
 - [STRUCTURE.md](./docs/STRUCTURE.md) — pastas `app/harness`, API FastAPI, shell
+- [NEURAL_MAP.md](./docs/NEURAL_MAP.md) — ativação esparsa A→D, L1/L2, 4 GB + Ollama
 
 ## Desenvolvimento (FastAPI)
 

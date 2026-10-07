@@ -22,9 +22,13 @@ GRIPPO/
 │       └── worktree/             # RepositorySnapshot
 ├── skills/                       # skills semânticas (SKILL.md)
 ├── docs/
+│   ├── NEURAL_MAP.md
+│   └── diagrams/GRIPPO-neural-map.excalidraw
 ├── tests/
 └── pyproject.toml
 ```
+
+Futuro: `app/harness/neural/` (`router.py`, `lexicon.yaml`) para camadas A/B do mapa neural — ver [NEURAL_MAP.md](./NEURAL_MAP.md).
 
 ## Shell
 

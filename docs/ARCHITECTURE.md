@@ -6,6 +6,8 @@ This document defines runtime contracts for the **MVP** (daily Git: add, commit,
 
 **MVP scope (product):** help users via semantic **skills** mapped to `git add`, `git commit`, `git push`, `git stash`, `git checkout -b`, and `git checkout <branch>`. See [SKILLS.md](./SKILLS.md) for skill IDs and authoring rules.
 
+**4 GB / Ollama:** avoid long LLM reasoning; use sparse **symbolic neural** routing (intent → snapshot → skill retrieval → micro-plan). See [NEURAL_MAP.md](./NEURAL_MAP.md) and [diagrams/GRIPPO-neural-map.excalidraw](./diagrams/GRIPPO-neural-map.excalidraw).
+
 ---
 
 ## 1. System context
@@ -289,12 +291,15 @@ IDLE → OBSERVE → PLAN → [PROPOSE_TOOL]* → POLICY → EXECUTE → VERIFY 
 
 ### 4.2 Limits (local / 4B-friendly)
 
+Aligned with [NEURAL_MAP.md](./NEURAL_MAP.md): the LLM does a **micro-plan** after harness-side routing and skill retrieval, not full-repo reasoning.
+
 | Limit | Default | Purpose |
 |-------|---------|---------|
 | `max_steps` | 12 | Prevent runaway loops |
 | `max_tool_calls_per_turn` | 3 | Keep context small |
 | `max_diff_bytes` | 32 KiB per `git_diff` | Truncate with `truncated: true` |
 | `timeout_per_git` | 30s | Hung hooks |
+| `skill_retrieval` | 1 active skill | Sparse “layer C” activation |
 
 ### 4.3 Message roles
 
@@ -535,6 +540,8 @@ No shell escape hatch in MVP.
 
 - [README](../README.md) — MVP scope and CLI vision
 - [SKILLS.md](./SKILLS.md) — semantic skills for add/commit/push/stash/branch
+- [NEURAL_MAP.md](./NEURAL_MAP.md) — symbolic neural map for low-RAM Ollama
+- [diagrams/GRIPPO-neural-map.excalidraw](./diagrams/GRIPPO-neural-map.excalidraw) — visual diagram
 - (future) `docs/GIT.md` — Git concepts for contributors (not full prompt dumps)
 - (future) `docs/POLICY.md` — operator guide for enterprise rules
 
