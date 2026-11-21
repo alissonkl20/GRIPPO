@@ -8,7 +8,7 @@ from grippo.engine.operations import CATALOG, catalog_for_prompt
 
 # High-level intents the planner expands using repository state.
 VIRTUAL_OPS: dict[str, str] = {
-    "commit_changes": "commit_changes(request?:text, message?:message, paths?:paths): preparar "
+    "commit_changes": "commit_changes(request?:text, message?:message, paths?:paths, branch?:refname): preparar "
     "commit (GRIPPO escolhe arquivos relacionados e mensagem)",
     "publish": "publish(remote?:remote, branch?:refname): enviar commits locais ao remoto",
     "sync_branch": "sync_branch(base:rev, strategy?:[merge|rebase]): atualizar a branch atual "

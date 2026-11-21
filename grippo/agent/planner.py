@@ -92,6 +92,9 @@ class Planner:
                 message=f"Há um {state.in_progress} em andamento: "
                 f'use "continuar o {state.in_progress}" ({op}) para concluí-lo.',
             )
+        guard = self._branch_guard(args.get("branch"), state, "commitar")
+        if guard is not None:
+            return guard
         request = str(args.get("request") or "")
         explicit_paths = args.get("paths")
         warnings: list[str] = []
@@ -143,9 +146,34 @@ class Planner:
             )
         message = draft.message
         if args.get("message"):
-            message = normalize_message(str(args["message"])) or str(args["message"]).strip()
+            explicit = normalize_message(str(args["message"]))
+            if explicit:
+                message = explicit
+            else:
+                warnings.append(
+                    f"mensagem sugerida {str(args['message'])!r} não segue Conventional "
+                    "Commits; usando a mensagem gerada (edite com [e])"
+                )
         steps.append(("commit", {"message": message}))
         return steps, warnings, draft
+
+    def _branch_guard(self, wanted: Any, state: RepoState, verb: str) -> PlanOutcome | None:
+        """The user named a branch other than the current one: never act on the wrong branch."""
+        if not wanted or wanted == state.branch:
+            return None
+        name = str(wanted)
+        exists = self.reader.branch_exists(name) or any(
+            r.split("/", 1)[1] == name for r in self.reader.remote_branches()
+        )
+        if not exists:
+            return None  # not a branch name ("commit para o formulário")
+        return PlanOutcome(
+            "clarify",
+            message=f"Você está na branch {state.branch or '(HEAD destacado)'}, mas pediu para "
+            f'{verb} em {name}. Nada foi feito. Primeiro mude de branch ("mude para {name}"; '
+            "as alterações locais acompanham a troca, e o Git recusa se houver conflito) "
+            "e repita o pedido.",
+        )
 
     def _publish(
         self, args: dict[str, Any], state: RepoState, prior: list[StepSpec]
@@ -157,7 +185,10 @@ class Planner:
                 message="Nenhum remoto configurado. Adicione um com "
                 '"adicione o remoto origin <url>".',
             )
-        branch = args.get("branch") or state.branch
+        guard = self._branch_guard(args.get("branch"), state, "enviar")
+        if guard is not None:
+            return guard
+        branch = state.branch
         if not branch:
             return PlanOutcome("clarify", message="HEAD destacado: para qual branch devo enviar?")
         remote = args.get("remote") or (state.upstream.split("/", 1)[0] if state.upstream else None)

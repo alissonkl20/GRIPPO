@@ -141,13 +141,27 @@ def _rule_commit(t: str, o: str, s: RepoState | None) -> Interpretation | None:
     match = re.search(r"\b(?:commit\w*|comita\w*)\b(.*)", o, flags=re.IGNORECASE)
     request = match.group(1).strip(" .") if match else ""
     request = re.sub(r"^(d[aoe]s?|of|the)\s+", "", request, flags=re.IGNORECASE)
+    target = re.search(
+        r"\b(?:na|para|pra|into|on|to)\s+(?:a\s+|o\s+)?(?:branch\s+)?([A-Za-z0-9][\w./-]*)\s*[.!]?\s*$",
+        o,
+        flags=re.IGNORECASE,
+    )
+    branch = _clean_name(target.group(1)) if target else ""
+    if target:
+        request = request[: max(0, len(request) - len(target.group(0)))].strip()
     request = re.split(
-        r"\s+e\s+(?:fa[cç]a\s+)?(?:push|envi|mand|sub)", request, flags=re.IGNORECASE
-    )[0]
-    steps: list[StepSpec] = [("commit_changes", {"request": request})]
+        r"(?:^|\s+)e\s+(?:fa[cç]a\s+)?(?:o\s+)?(?:push|envi|mand|sub)",
+        request,
+        flags=re.IGNORECASE,
+    )[0].strip()
+    commit_args: dict[str, Any] = {"request": request}
+    if branch and fold(branch) not in _STOPWORDS:
+        commit_args["branch"] = branch
+    steps: list[StepSpec] = [("commit_changes", commit_args)]
     if re.search(r"\b(push|envi\w*|mand\w* (pro|para o) remoto|sub(a|ir))\b", t):
-        steps.append(("publish", {}))
-    return Interpretation("execute", steps, reply="Vou preparar o commit.")
+        steps.append(("publish", {"branch": branch} if "branch" in commit_args else {}))
+    # Commits are planned deterministically (the LLM still drafts files/message).
+    return Interpretation("execute", steps, reply="Vou preparar o commit.", fast=True)
 
 
 def _rule_undo(t: str, o: str, s: RepoState | None) -> Interpretation | None:

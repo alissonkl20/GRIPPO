@@ -7,7 +7,7 @@ No [**mapa neural simbólico**](./NEURAL_MAP.md), cada skill é a camada **C** (
 ## Onde ficam
 
 ```
-skills/
+grippo/skills/data/
 ├── stage-changes/
 │   └── SKILL.md
 ├── semantic-commit/
@@ -39,11 +39,11 @@ version: 1
 description: Propor mensagem Conventional Commit e executar git commit após aprovação
 phase: [MODIFIED, STAGED]
 tools:
-  - git_status
-  - git_diff
-  - git_diff_cached
-  - git_stage
-  - git_commit
+  - status
+  - diff
+  - diff
+  - add
+  - commit
 requires_clean_conflicts: true
 max_steps: 10
 ---
@@ -66,49 +66,49 @@ Use estes IDs ao criar os arquivos. O corpo de cada skill deve ser **curto** (re
 ### `stage-changes` → `git add`
 
 - **Objetivo:** mapear intenção (“só auth”, “tudo menos X”) para `files[]` no snapshot.
-- **Tools:** `git_status`, `git_diff` (opcional), `git_stage`.
+- **Tools:** `status`, `diff` (opcional), `add`.
 - **Regras:** só paths que existem no worktree; nunca `.env` / chaves (delegar à policy quando existir).
 
 ### `semantic-commit` → `git commit`
 
-- **Objetivo:** ler diff (staged ou stage antes), propor mensagem Conventional Commits, **não** chamar `git_commit` sem confirmação explícita na UI.
-- **Tools:** `git_status`, `git_diff`, `git_diff_cached`, `git_stage`, `git_commit`.
+- **Objetivo:** ler diff (staged ou stage antes), propor mensagem Conventional Commits, **não** chamar `commit` sem confirmação explícita na UI.
+- **Tools:** `status`, `diff`, `diff` (staged), `add`, `commit`.
 - **Regras:** um assunto por commit; separar feat/fix/docs quando o diff misturar; truncar diff grande e pedir escopo menor.
 
 ### `push` → `git push`
 
 - **Objetivo:** push da branch atual com upstream configurado; avisar se ahead/behind ou sem remote.
-- **Tools:** `git_status` (snapshot), `git_push`.
+- **Tools:** `status` (snapshot), `push`.
 - **Regras:** `force` só com approval (policy); mostrar branch e remote antes de executar.
 
 ### `stash-save` → `git stash push`
 
 - **Objetivo:** guardar mudanças locais com mensagem opcional; opcionalmente só alguns paths.
-- **Tools:** `git_status`, `git_stash_push` (nome da tool no harness).
+- **Tools:** `status`, `stash_push` (nome da tool no harness).
 - **Regras:** explicar o que vai entrar no stash (lista de paths do snapshot).
 
 ### `stash-restore` → `git stash pop` / `apply`
 
 - **Objetivo:** recuperar stash; preferir `pop` quando o usuário disser “último stash”.
-- **Tools:** `git_stash_list`, `git_stash_pop` ou `git_stash_apply`.
+- **Tools:** `stash_list`, `stash_pop` ou `stash_apply`.
 - **Regras:** avisar se o apply pode gerar conflitos (repo não limpo).
 
 ### `branch-create` → `git checkout -b`
 
 - **Objetivo:** criar branch a partir de HEAD (ou base explícita no futuro).
-- **Tools:** `git_branch_create` (wrapper: `checkout -b`), `git_status`.
+- **Tools:** `branch_create` (wrapper: `checkout -b`), `status`.
 - **Regras:** validar nome de branch (sem espaços, sem ambiguidade com flags).
 
 ### `branch-switch` → `git checkout <branch>`
 
 - **Objetivo:** trocar de branch quando o worktree permitir.
-- **Tools:** `git_checkout`, `git_status`.
+- **Tools:** `switch`, `status`.
 - **Regras:** se há mudanças não commitadas, sugerir stash ou commit antes (não forçar checkout destrutivo).
 
 ### `inspect-worktree` → leitura
 
 - **Objetivo:** explicar status e diff; sem mutations.
-- **Tools:** `git_status`, `git_diff`, `git_log` (leitura).
+- **Tools:** `status`, `diff`, `log` (leitura).
 - **Default** da sessão `grippo` quando não há intenção clara de mutação.
 
 ## Metodologia no prompt (treinar o harness)
@@ -116,7 +116,7 @@ Use estes IDs ao criar os arquivos. O corpo de cada skill deve ser **curto** (re
 Em cada skill, deixe explícito o ciclo que o modelo deve seguir:
 
 1. **Input** — pedido do usuário + `phase` + trecho relevante do snapshot.
-2. **Estruturar** — listar paths/commits/branches candidatos; pedir `git_diff` só se necessário.
+2. **Estruturar** — listar paths/commits/branches candidatos; pedir `diff` só se necessário.
 3. **Operar** — uma ou poucas tool calls com JSON válido.
 4. **Executar** — harness roda Git, devolve novo snapshot; commit/push só após OK do usuário.
 
@@ -138,6 +138,6 @@ Fase inicial: subcomandos mapeiam 1:1 para skills; roteador por frase natural po
 
 ## Contribuindo uma skill
 
-1. Criar pasta `skills/<id>/SKILL.md` com frontmatter válido.
+1. Criar pasta `grippo/skills/data/<id>/SKILL.md` com frontmatter válido.
 2. Manter o corpo focado em decisões e exemplos de arguments — linkar conceitos Git longos para um futuro `docs/GIT.md` se precisar.
 3. Listar `phase` e `tools` de forma restrita (menos contexto = melhor em 4 GB RAM).

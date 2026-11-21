@@ -16,7 +16,7 @@ from grippo.llm.prompts import INTENT_SCHEMA, VIRTUAL_OPS, system_prompt
 log = logging.getLogger(__name__)
 
 _VIRTUAL_PARAMS: dict[str, set[str]] = {
-    "commit_changes": {"request", "message", "paths"},
+    "commit_changes": {"request", "message", "paths", "branch"},
     "publish": {"remote", "branch"},
     "sync_branch": {"base", "strategy"},
     "undo_last_commit": {"keep_changes"},

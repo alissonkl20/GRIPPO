@@ -117,6 +117,21 @@ _STOPWORDS = frozenset(
         "prepara",
         "prepare",
         "preparar",
+        "push",
+        "envie",
+        "enviar",
+        "envia",
+        "remoto",
+        "origin",
+        "git",
+        "add",
+        "foram",
+        "feitas",
+        "feitos",
+        "feito",
+        "feita",
+        "realizadas",
+        "realizados",
     ]
 )
 _ALL_WORDS = frozenset({"tudo", "todos", "todas", "all", "everything"})
@@ -336,7 +351,8 @@ class CommitDrafter:
         notes: list[str],
         metrics: list[LLMMetrics],
     ) -> list[str]:
-        words = _words(request)
+        # The project's own name ("commit do grippo") means "this repo", not a topic.
+        words = _words(request) - _raw_words(reader.repo.name)
         if not words:
             return _generic_selection(request, candidates, state)
         chosen = {c for c in candidates if _related_by_words(words, c)}

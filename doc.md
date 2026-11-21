@@ -50,4 +50,5 @@ O agente decide se precisa de `git add .` (ou paths específicos), `commit` e `p
 
 ## Stack (já no repositório)
 
-Python 3.11+, FastAPI (`app/`), harness em `app/harness/`, skills em `skills/`. Ver [README.md](./README.md) e [docs/ARCHITECTURE.md](./docs/ARCHITECTURE.md).
+Python 3.11+, pacote `grippo/` (CLI, motor de operações Git, permissões, integração Ollama), skills em `grippo/skills/data/`, API HTTP opcional. Ver [README.md](./README.md) e [docs/ARCHITECTURE.md](./docs/ARCHITECTURE.md).
+

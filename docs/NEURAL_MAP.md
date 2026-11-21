@@ -35,7 +35,7 @@ Cada coluna de elipses **A, B, C, D** é uma **etapa de ativação**, não um pa
 | **A** | Intenção | Palavras-chave, fase do repo, subcomando CLI | ~0 LLM |
 | **B** | Conceito Git | Léxico: o que é stash, index, branch… | [GIT.md](./GIT.md) |
 | **C** | Skill | Um `SKILL.md` por fluxo (`semantic-commit`, …) | Leitura de arquivo |
-| **D** | Ação | Tool + JSON (`git_stage`, `git_commit`, …) | Harness + shell `git` |
+| **D** | Ação | Tool + JSON (`add`, `commit`, …) | Harness + shell `git` |
 
 **L1** = léxico Git embutido (tabela intenção → conceito).  
 **L2** = “pesquisa rápida”: carregar só a skill candidata + tools permitidas.  
@@ -56,7 +56,7 @@ Usuário → LLM longo → “imaginar” git status → comando shell na sorte
 1. **ENTRADA** — “commita isso”, “stash”, “push”.
 2. **ROTEAR** — `phase` + keywords → skill provável (`semantic-commit`, `stash-save`, …).
 3. **VISÃO RÁPIDA** — `RepositorySnapshot` (branch, paths, clean/staged); **sem** diff gigante ainda.
-4. **RECUPERAR** — corpo da skill + 1 `git_diff` filtrado se necessário.
+4. **RECUPERAR** — corpo da skill + 1 `diff` filtrado se necessário.
 5. **MICRO-PLANO** — 1 chamada Ollama, poucos tokens → tool call estruturada.
 6. **VALIDAR** — policy, paths, confirmação humana em commit/push.
 7. **EXECUTAR** — `git` via subprocess; refresh do snapshot.
@@ -84,15 +84,15 @@ O harness garante que **B** e **C** venham de fontes determinísticas; o LLM só
 | Q4 + modelo 3B–4B | Cabe em 4 GB |
 | Git real pós-ação | VERIFY sem “achismo” |
 
-## Implementação no código (roadmap)
+## Implementação no código
 
 | Peça | Pacote / local |
 |------|----------------|
-| Snapshot | `app/harness/worktree/snapshot.py` |
-| Skills (L2) | `app/harness/skills/` + `skills/` |
-| Tools (D) | `app/harness/tools/git.py` |
-| Roteamento (A) | futuro `app/harness/neural/router.py` |
-| Léxico (L1) | futuro `app/harness/neural/lexicon.yaml` |
-| Micro-plano | `app/harness/llm/` + Ollama |
+| Snapshot | `grippo/git/state.py` (`git status --porcelain=v2 -z`) |
+| Skills (L2) | `grippo/skills/loader.py` + `grippo/skills/data/*/SKILL.md` |
+| Operações (D) | `grippo/engine/operations.py` (catálogo tipado) + `grippo/engine/executor.py` |
+| Roteamento (A) | `grippo/agent/router.py` (caminho rápido determinístico + fallback) |
+| Micro-plano | `grippo/llm/interpreter.py` + `grippo/agent/planner.py` + Ollama |
+| Segurança | `grippo/engine/permissions.py` (`GitPermissionManager`) |
 
 O nome **neural** aqui é **arquitetura de ativação**: esparso, rápido e guiado — não um segundo modelo treinado.
