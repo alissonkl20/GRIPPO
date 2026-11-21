@@ -48,6 +48,17 @@ grippo config path                      # onde fica cada coisa
 | `auto_approve` | `[]` | operações moderadas aprovadas automaticamente no nível 3 |
 | `protected_branches` | `["main","master","develop"]` | aviso extra em force push |
 
+## `[ui]`
+
+| Chave | Padrão | Descrição |
+|---|---|---|
+| `animation` | `true` | guepardo animado ao abrir o modo interativo (~0,6 s) |
+| `animation_cycles` | `2` | ciclos de galope (0–10; `0` = desenho estático) |
+
+A animação só roda em terminal real com pelo menos 44×18; em pipe, `TERM=dumb` ou
+terminal pequeno ela é omitida. `GRIPPO_NO_ANIMATION=1` desliga; `NO_COLOR` remove as
+cores; Ctrl-C pula.
+
 ## `[logging]`
 
 | Chave | Padrão | Descrição |

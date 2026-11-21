@@ -5,6 +5,18 @@ versionamento: [Semantic Versioning](https://semver.org/lang/pt-BR/).
 
 ## [Unreleased]
 
+### Alterado
+- Cabeçalho do modo interativo: guepardo ASCII animado original (substitui a barata),
+  ~0,6 s, sem dependências nem arquivos de imagem; configurável em `[ui]`.
+- Commit/push: aviso quando a branch está atrás da `main`; prévia do push correta após
+  um commit no mesmo plano; mensagens do modelo sem tipo recebem o prefixo
+  Conventional Commit; tipo escolhido pela maioria dos arquivos; corte em fim de palavra.
+- "merge da main" sem branch local usa `origin/main` (com aviso).
+- Pedidos de commit/push com branch diferente da atual pedem para trocar de branch antes.
+
+### Removido
+- `grippo/cli/assets/cockroach.png`.
+
 ## [0.2.0] - não publicado (aguardando tag)
 
 Reestruturação completa para ferramenta CLI instalável, com execução Git segura.

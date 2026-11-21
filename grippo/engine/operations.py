@@ -63,6 +63,8 @@ class OpContext:
     repo: Repository
     state: RepoState
     reader: GitReader
+    # Operations planned before this one in the same plan (preview only).
+    prior_ops: tuple[str, ...] = ()
 
 
 Args = dict[str, Any]
@@ -1328,7 +1330,11 @@ def _push_commits(a: Args, c: OpContext) -> list[Any]:
 def _push_impact(a: Args, c: OpContext) -> Impact:
     remote, branch = _default_remote(a, c), _push_branch(a, c)
     commits = _push_commits(a, c)
-    consequences = [f"envia {len(commits)} commit(s) para {remote}/{branch}"]
+    pending = "commit" in c.prior_ops
+    consequences = [
+        f"envia {len(commits)} commit(s) para {remote}/{branch}"
+        + (" + o commit criado no passo anterior" if pending else "")
+    ]
     warnings = []
     forced = a.get("force") or a.get("force_with_lease")
     if forced:
@@ -1345,7 +1351,7 @@ def _push_impact(a: Args, c: OpContext) -> Impact:
             f"a branch está {c.state.behind} commit(s) atrás: o push será "
             "rejeitado; faça pull antes"
         )
-    if not commits and not forced:
+    if not commits and not forced and not pending:
         warnings.append("nada novo para enviar")
     if a.get("set_upstream"):
         consequences.append(f"define {remote}/{branch} como upstream")

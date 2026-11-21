@@ -20,7 +20,7 @@ HELP = """\
   /llm         estado do modelo local
   /reset       limpar a memória da conversa
   /clear       limpar a tela
-  /exit        sair (ou Ctrl-D)
+  /exit        sair (também: exit, sair, quit, Ctrl-D ou Ctrl-C duas vezes)
 
 Fale em linguagem natural, por exemplo:
   mostre o que foi alterado · faça commit do formulário · crie a branch fix/login
@@ -55,6 +55,14 @@ def make_reader(history_file: Path | None) -> Callable[[str], str]:
         return line.rstrip("\n")
 
     return plain
+
+
+EXIT_WORDS = frozenset({"exit", "quit", "sair", "q", ":q", "tchau", "bye"})
+
+
+def is_exit(message: str) -> bool:
+    text = message.strip().lower().rstrip(".!")
+    return text.lstrip("/") in EXIT_WORDS
 
 
 def llm_label(runtime: Runtime) -> str:
@@ -101,7 +109,9 @@ def _llm_status(runtime: Runtime) -> None:
 
 def repl(runtime: Runtime) -> int:
     read = make_reader(runtime.paths.history_file)
-    renderer.show_header()
+    renderer.show_header(
+        animate=runtime.config.ui.animation, cycles=runtime.config.ui.animation_cycles
+    )
     try:
         state = runtime.executor.state()
     except GrippoError as error:
@@ -110,20 +120,28 @@ def repl(runtime: Runtime) -> int:
     renderer.show_welcome(runtime.repo.root, state, llm_label(runtime))
     level = runtime.config.security.autonomy_level
     renderer.show_info(f"autonomia nível {level}: {AUTONOMY_LEVELS[level]}", "dim")
+    interrupts = 0
     while True:
         try:
             message = read("❯ ").strip()
+            interrupts = 0
         except KeyboardInterrupt:
+            interrupts += 1
+            if interrupts >= 2:
+                renderer.show_info("até logo.", "dim")
+                return 0
+            renderer.show_info("(Ctrl-C de novo, exit ou Ctrl-D para sair)", "dim")
             continue
         except EOFError:
             renderer.show_info("até logo.", "dim")
             return 0
         if not message:
             continue
+        if is_exit(message):
+            renderer.show_info("até logo.", "dim")
+            return 0
         if message.startswith("/"):
             command = message.split()[0].lower()
-            if command in {"/exit", "/quit", "/sair"}:
-                return 0
             if command == "/help":
                 renderer.console.print(HELP)
             elif command == "/status":

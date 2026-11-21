@@ -85,3 +85,9 @@ def test_portuguese_request_matches_english_paths(repo, executor):
                               ("tela de autenticação", ["src/auth/login.py"])):
         draft = drafter.draft(request, state, executor.reader, list(state.untracked))
         assert draft.files == expected, (request, draft.files)
+
+
+def test_long_message_cut_at_word_boundary():
+    msg = normalize_message("feat(core): add functionality to resolve remote revisions and warn about stale")
+    assert msg is not None and len(msg) <= 72 and not msg.endswith(" ab")
+    assert msg.endswith("warn")

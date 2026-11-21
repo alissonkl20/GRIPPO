@@ -50,7 +50,7 @@ class Planner:
         for op, args in interpretation.steps:
             expander = _EXPANDERS.get(op)
             if expander is None:
-                steps.append((op, args))
+                steps.append((op, self._resolve_remote_revs(args, notes)))
                 continue
             outcome = expander(self, args, state, steps)
             if isinstance(outcome, PlanOutcome):
@@ -155,7 +155,45 @@ class Planner:
                     "Commits; usando a mensagem gerada (edite com [e])"
                 )
         steps.append(("commit", {"message": message}))
+        warnings.extend(self._behind_default(state))
         return steps, warnings, draft
+
+    _REV_KEYS = ("rev", "upstream", "base", "target", "start")
+
+    def _resolve_remote_revs(self, args: dict[str, Any], notes: list[str]) -> dict[str, Any]:
+        """'merge da main' without a local main → origin/main (said explicitly)."""
+        fixed = dict(args)
+        for key in self._REV_KEYS:
+            value = fixed.get(key)
+            if not isinstance(value, str) or not value or self.reader.resolve(value):
+                continue
+            for remote in self.reader.remotes():
+                candidate = f"{remote}/{value}"
+                if self.reader.resolve(candidate):
+                    fixed[key] = candidate
+                    notes.append(f"'{value}' não existe localmente; usando {candidate}")
+                    break
+        return fixed
+
+    def _behind_default(self, state: RepoState) -> list[str]:
+        """Warn when the current branch lacks commits of main/master (stale branch)."""
+        if not state.branch or not state.head:
+            return []
+        for default in ("main", "master"):
+            if default == state.branch:
+                return []
+            ref = default if self.reader.branch_exists(default) else f"origin/{default}"
+            if not self.reader.resolve(ref):
+                continue
+            missing = self.reader.commits(f"HEAD..{ref}", limit=100)
+            if missing:
+                count = f"{len(missing)}+" if len(missing) == 100 else str(len(missing))
+                return [
+                    f"{state.branch} não contém {count} commit(s) de {ref}; se ela "
+                    f'deveria estar atualizada, considere "faça merge da {default}" antes'
+                ]
+            return []
+        return []
 
     def _branch_guard(self, wanted: Any, state: RepoState, verb: str) -> PlanOutcome | None:
         """The user named a branch other than the current one: never act on the wrong branch."""
@@ -217,6 +255,8 @@ class Planner:
         push_args: dict[str, Any] = {"remote": remote, "branch": branch}
         if not state.upstream:
             push_args["set_upstream"] = True
+        if not committing:
+            warnings.extend(self._behind_default(state))
         return [("push", push_args)], warnings, None
 
     def _sync(
