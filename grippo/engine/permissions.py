@@ -131,10 +131,6 @@ class GitPermissionManager:
             self._sign(binding, prepared.risk, issued, expires, nonce),
         )
 
-    def revoke_all(self) -> None:
-        with self._lock:
-            self._outstanding.clear()
-
     def check(
         self, prepared: PreparedPlan, current_binding: str, authorization: Authorization | None
     ) -> None:

@@ -94,7 +94,7 @@ main", "guarde minhas alterações", "liste as branches já mescladas".
 | [docs/CONFIGURATION.md](docs/CONFIGURATION.md) | `config.toml` e variáveis `GRIPPO_*` |
 | [docs/TESTING.md](docs/TESTING.md) | camadas de teste e como executá-las |
 | [docs/RELEASING.md](docs/RELEASING.md) | versionamento e publicação |
-| [docs/GIT.md](docs/GIT.md) · [docs/SKILLS.md](docs/SKILLS.md) · [docs/NEURAL_MAP.md](docs/NEURAL_MAP.md) | léxico Git, skills, roteamento |
+| [docs/GIT.md](docs/GIT.md) · [docs/SKILLS.md](docs/SKILLS.md) | léxico Git e skills |
 | [CONTRIBUTING.md](CONTRIBUTING.md) · [SECURITY.md](SECURITY.md) · [CHANGELOG.md](CHANGELOG.md) | contribuição, segurança, histórico |
 
 ## Status

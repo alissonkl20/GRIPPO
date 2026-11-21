@@ -56,9 +56,6 @@ class GitReader:
     def remote_branches(self) -> list[str]:
         return [r for r in self._refs("refs/remotes") if not r.endswith("/HEAD") and "/" in r]
 
-    def tags(self) -> list[str]:
-        return self._refs("refs/tags")
-
     def branch_exists(self, name: str) -> bool:
         return self.run(["show-ref", "--verify", "--quiet", f"refs/heads/{name}"]).ok
 
@@ -71,10 +68,6 @@ class GitReader:
 
     def remote_url(self, name: str) -> str | None:
         result = self.run(["remote", "get-url", name])
-        return result.stdout.strip() if result.ok else None
-
-    def upstream_of(self, branch: str) -> str | None:
-        result = self.run(["rev-parse", "--abbrev-ref", f"{branch}@{{upstream}}"])
         return result.stdout.strip() if result.ok else None
 
     def published_commits(self, commits: list[Commit]) -> list[Commit]:
@@ -131,7 +124,3 @@ class GitReader:
         result = self.run([*args, "--", *paths])
         text = result.stdout if result.ok else ""
         return text[:max_chars]
-
-    def config_get(self, key: str) -> str | None:
-        result = self.run(["config", "--get", key])
-        return result.stdout.strip() if result.ok else None

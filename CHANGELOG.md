@@ -6,6 +6,10 @@ versionamento: [Semantic Versioning](https://semver.org/lang/pt-BR/).
 ## [Unreleased]
 
 ### Alterado
+- Interface colorida: paleta única (âmbar), prompt com a branch atual
+  (`grippo develop* ❯`), painéis de boas-vindas/estado/ajuda, etiquetas de risco,
+  teclas de confirmação coloridas e destaque de diff/log. `NO_COLOR` respeitado.
+- Sair com `exit`/`sair`/`quit` (sem barra) ou Ctrl-C duas vezes.
 - Cabeçalho do modo interativo: guepardo ASCII animado original (substitui a barata),
   ~0,6 s, sem dependências nem arquivos de imagem; configurável em `[ui]`.
 - Commit/push: aviso quando a branch está atrás da `main`; prévia do push correta após
@@ -15,7 +19,10 @@ versionamento: [Semantic Versioning](https://semver.org/lang/pt-BR/).
 - Pedidos de commit/push com branch diferente da atual pedem para trocar de branch antes.
 
 ### Removido
-- `grippo/cli/assets/cockroach.png`.
+- `grippo/cli/assets/cockroach.png`, `doc.md`, `finale.md`, `docs/NEURAL_MAP.md` e o
+  diagrama Excalidraw (substituídos por README e `docs/ARCHITECTURE.md`).
+- Código sem uso (`GitReader.tags/upstream_of/config_get`, `OllamaClient.warm_up`,
+  `GitPermissionManager.revoke_all`).
 
 ## [0.2.0] - não publicado (aguardando tag)
 

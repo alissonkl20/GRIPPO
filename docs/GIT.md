@@ -4,7 +4,7 @@ Resumo **curto** para roteamento e micro-plano (modelo Q4/Q2, ~4 GB). Não subst
 
 **Fontes (Git 2.53):** man pages (`git help <cmd>`), [gitglossary](https://git-scm.com/docs/gitglossary), [giteveryday](https://git-scm.com/docs/giteveryday).
 
-No mapa neural: este documento é a camada **B**. Uma skill (`SKILL.md`) é **C**. Tools são **D**. Ver [NEURAL_MAP.md](./NEURAL_MAP.md).
+Este documento é o léxico de referência; as skills (`SKILL.md`) descrevem fluxos e as operações ficam no catálogo `grippo/engine/operations.py` (ver [ARCHITECTURE.md](./ARCHITECTURE.md)).
 
 ---
 

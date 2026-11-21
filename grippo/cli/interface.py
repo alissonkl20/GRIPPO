@@ -9,26 +9,10 @@ from pathlib import Path
 from grippo.agent.assistant import TurnResult
 from grippo.cli import renderer
 from grippo.cli.confirm import confirm_and_run
+from grippo.cli.theme import ansi, strip_ansi
 from grippo.engine.permissions import AUTONOMY_LEVELS
 from grippo.errors import GrippoError
 from grippo.runtime import Runtime
-
-HELP = """\
-[bold]Comandos[/bold]
-  /help        esta ajuda
-  /status      estado do repositório
-  /llm         estado do modelo local
-  /reset       limpar a memória da conversa
-  /clear       limpar a tela
-  /exit        sair (também: exit, sair, quit, Ctrl-D ou Ctrl-C duas vezes)
-
-Fale em linguagem natural, por exemplo:
-  mostre o que foi alterado · faça commit do formulário · crie a branch fix/login
-  desfaça o último commit mantendo as alterações · atualize minha branch com develop
-  envie minhas alterações para o remoto · faça cherry-pick do commit abc1234
-
-[dim]Operações que alteram o repositório sempre mostram o impacto e pedem confirmação.[/dim]
-"""
 
 
 def make_reader(history_file: Path | None) -> Callable[[str], str]:
@@ -43,11 +27,13 @@ def make_reader(history_file: Path | None) -> Callable[[str], str]:
                 history = FileHistory(str(history_file))  # type: ignore[assignment]
             except OSError:
                 pass
+        from prompt_toolkit.formatted_text import ANSI
+
         session: PromptSession[str] = PromptSession(history=history)
-        return lambda prompt: session.prompt(prompt)
+        return lambda prompt: session.prompt(ANSI(prompt))
 
     def plain(prompt: str) -> str:
-        sys.stdout.write(prompt)
+        sys.stdout.write(strip_ansi(prompt))
         sys.stdout.flush()
         line = sys.stdin.readline()
         if not line:
@@ -72,7 +58,9 @@ def llm_label(runtime: Runtime) -> str:
 
 
 def run_turn(runtime: Runtime, message: str, read: Callable[[str], str]) -> TurnResult:
-    with renderer.console.status("[bold green]GRIPPO analisando…[/bold green]", spinner="dots"):
+    with renderer.console.status(
+        "[brand]GRIPPO analisando…[/]", spinner="dots", spinner_style="brand"
+    ):
         turn = runtime.assistant.handle(message)
     renderer.show_turn(turn)
     if turn.kind == "confirm":
@@ -107,6 +95,17 @@ def _llm_status(runtime: Runtime) -> None:
         renderer.show_info("  nenhum modelo carregado no momento (carrega na primeira pergunta)")
 
 
+def _prompt(runtime: Runtime) -> str:
+    """`grippo develop ❯ ` — branch read cheaply on every prompt (~10 ms)."""
+    try:
+        state = runtime.executor.state()
+        branch = state.branch or state.short_head
+        dirty = "" if state.clean else ansi("*", "warn")
+    except GrippoError:
+        branch, dirty = "?", ""
+    return f"{ansi('grippo', 'brand')} {ansi(branch, 'branch')}{dirty} {ansi('❯', 'brand')} "
+
+
 def repl(runtime: Runtime) -> int:
     read = make_reader(runtime.paths.history_file)
     renderer.show_header(
@@ -117,40 +116,41 @@ def repl(runtime: Runtime) -> int:
     except GrippoError as error:
         renderer.show_error(str(error))
         state = None
-    renderer.show_welcome(runtime.repo.root, state, llm_label(runtime))
     level = runtime.config.security.autonomy_level
-    renderer.show_info(f"autonomia nível {level}: {AUTONOMY_LEVELS[level]}", "dim")
+    renderer.show_welcome(
+        runtime.repo.root, state, llm_label(runtime), f"nível {level} · {AUTONOMY_LEVELS[level]}"
+    )
     interrupts = 0
     while True:
         try:
-            message = read("❯ ").strip()
+            message = read(_prompt(runtime)).strip()
             interrupts = 0
         except KeyboardInterrupt:
             interrupts += 1
             if interrupts >= 2:
-                renderer.show_info("até logo.", "dim")
+                renderer.show_info("até logo! 🐆", "brand.dim")
                 return 0
-            renderer.show_info("(Ctrl-C de novo, exit ou Ctrl-D para sair)", "dim")
+            renderer.show_info("(Ctrl-C de novo, exit ou Ctrl-D para sair)", "muted")
             continue
         except EOFError:
-            renderer.show_info("até logo.", "dim")
+            renderer.show_info("até logo! 🐆", "brand.dim")
             return 0
         if not message:
             continue
         if is_exit(message):
-            renderer.show_info("até logo.", "dim")
+            renderer.show_info("até logo! 🐆", "brand.dim")
             return 0
         if message.startswith("/"):
             command = message.split()[0].lower()
             if command == "/help":
-                renderer.console.print(HELP)
+                renderer.show_help()
             elif command == "/status":
                 renderer.show_state(runtime.executor.state())
             elif command == "/clear":
                 renderer.console.clear()
             elif command == "/reset":
                 runtime.assistant.session.clear()
-                renderer.show_info("memória da conversa limpa.", "dim")
+                renderer.show_info("memória da conversa limpa.", "muted")
             elif command == "/llm":
                 _llm_status(runtime)
             else:
@@ -159,5 +159,5 @@ def repl(runtime: Runtime) -> int:
         try:
             run_turn(runtime, message, read)
         except KeyboardInterrupt:
-            renderer.show_info("interrompido.", "yellow")
+            renderer.show_info("interrompido.", "warn")
             renderer.show_state(runtime.executor.state())

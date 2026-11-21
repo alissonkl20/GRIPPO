@@ -8,8 +8,6 @@ import subprocess
 from dataclasses import dataclass
 from pathlib import Path
 
-MIB = 1024 * 1024
-
 
 def _status_fields(pid: int | str) -> dict[str, str]:
     try:

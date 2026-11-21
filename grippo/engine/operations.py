@@ -40,7 +40,6 @@ class Param:
     choices: tuple[str, ...] = ()
     low: int = 0
     high: int = 1000
-    doc: str = ""
 
 
 @dataclass

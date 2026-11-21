@@ -2,7 +2,7 @@
 
 Skills ensinam o harness (e o modelo local) **como executar um fluxo Git** com pouco contexto. Elas não substituem o Git: definem pré-condições, tools permitidas, regras de mensagem e quando pedir confirmação ao usuário.
 
-No [**mapa neural simbólico**](./NEURAL_MAP.md), cada skill é a camada **C** (recuperação rápida / “L2”): só o `SKILL.md` relevante entra no prompt, em vez do manual completo do Git.
+Cada skill descreve um fluxo de forma curta; a segurança não depende delas (quem valida e autoriza é o código — ver [ARCHITECTURE.md](./ARCHITECTURE.md) e [PERMISSIONS.md](./PERMISSIONS.md)).
 
 ## Onde ficam
 

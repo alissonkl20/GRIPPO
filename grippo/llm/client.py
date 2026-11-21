@@ -230,19 +230,6 @@ class OllamaClient:
         return parsed, reply
 
     # ------------------------------------------------------------------ lifecycle
-    def warm_up(self) -> None:
-        """Load the model into memory without generating (keeps first answer fast)."""
-        self.ensure_model()
-        self._request(
-            "POST",
-            "/api/generate",
-            json={
-                "model": self.config.model,
-                "keep_alive": self.config.keep_alive,
-                "options": self._options(1),
-            },
-        )
-
     def unload(self) -> None:
         self._request("POST", "/api/generate", json={"model": self.config.model, "keep_alive": 0})
 
