@@ -33,7 +33,7 @@ Cada coluna de elipses **A, B, C, D** é uma **etapa de ativação**, não um pa
 | Símbolo | Função | Quem executa | Custo |
 |---------|--------|--------------|-------|
 | **A** | Intenção | Palavras-chave, fase do repo, subcomando CLI | ~0 LLM |
-| **B** | Conceito Git | Léxico: o que é stash, index, branch… | Documentação / `docs/GIT.md` (futuro) |
+| **B** | Conceito Git | Léxico: o que é stash, index, branch… | [GIT.md](./GIT.md) |
 | **C** | Skill | Um `SKILL.md` por fluxo (`semantic-commit`, …) | Leitura de arquivo |
 | **D** | Ação | Tool + JSON (`git_stage`, `git_commit`, …) | Harness + shell `git` |
 
@@ -70,7 +70,7 @@ Não precisa memorizar tudo. Precisa de:
 
 - **Visão breve** do estado (JSON compacto).
 - **Uma skill ativa** com regras do fluxo atual.
-- **Léxico mínimo** (stash = guardar trabalho local; commit = gravar no HEAD; etc.) — pode viver em `docs/GIT.md` e em trechos citados pelas skills.
+- **Léxico mínimo** (stash = guardar trabalho local; commit = gravar no HEAD; etc.) — [GIT.md](./GIT.md) e trechos citados pelas skills.
 
 O harness garante que **B** e **C** venham de fontes determinísticas; o LLM só conecta **A** → **D** na sessão atual.
 

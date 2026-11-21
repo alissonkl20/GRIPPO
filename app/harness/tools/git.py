@@ -9,6 +9,16 @@ def git_status(repo_root: Path) -> ShellResult:
     return run_shell(["git", "status"], cwd=repo_root)
 
 
+def git_diff(repo_root: Path, *, staged: bool = False, paths: list[str] | None = None) -> ShellResult:
+    argv = ["git", "diff"]
+    if staged:
+        argv.append("--cached")
+    argv.append("--")
+    if paths:
+        argv.extend(paths)
+    return run_shell(argv, cwd=repo_root)
+
+
 def git_add(repo_root: Path, files: list[str]) -> ShellResult:
     if not files:
         raise ValueError("files must not be empty")
@@ -16,13 +26,14 @@ def git_add(repo_root: Path, files: list[str]) -> ShellResult:
 
 
 def git_commit(repo_root: Path, message: str) -> ShellResult:
+    if not message.strip():
+        raise ValueError("commit message must not be empty")
     return run_shell(["git", "commit", "-m", message], cwd=repo_root)
 
 
 def git_push(repo_root: Path, remote: str = "origin", branch: str | None = None) -> ShellResult:
     argv = ["git", "push", remote]
-    if branch:
-        argv.append(branch)
+    argv.append(branch if branch else "HEAD")
     return run_shell(argv, cwd=repo_root)
 
 

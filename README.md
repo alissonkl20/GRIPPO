@@ -92,6 +92,8 @@ grippo doctor                   # repo saudável? conflitos? detached?
 - [SKILLS.md](./docs/SKILLS.md) — como escrever skills semânticas para o MVP
 - [STRUCTURE.md](./docs/STRUCTURE.md) — pastas `app/harness`, API FastAPI, shell
 - [NEURAL_MAP.md](./docs/NEURAL_MAP.md) — ativação esparsa A→D, L1/L2, 4 GB + Ollama
+- [GIT.md](./docs/GIT.md) — léxico Git (L1) condensado da documentação oficial
+- [doc.md](./doc.md) — visão do produto (agent CLI local, Q4/Q2, worktree)
 
 ## Desenvolvimento (FastAPI)
 
