@@ -171,3 +171,41 @@ def test_scripted_llm_destructive_proposal_still_gated(repo):
     assert (repo / "README.md").read_text() == "work"
     assert assistant.decide(turn.prepared, Decision.CANCEL) is None
     assert (repo / "README.md").read_text() == "work"
+
+
+def test_fixes_from_second_session(remote_repo, tmp_path):
+    """push preview after commit, repaired model message, remote fallback, stale branch."""
+    repo, _remote = remote_repo
+    # stale develop: created at init, main moves on
+    git(repo, "branch", "develop")
+    commit_file(repo, "src/core.py", "x", "feat: core")
+    git(repo, "push", "-q", "origin", "main")
+    git(repo, "switch", "-q", "develop")
+    git(repo, "push", "-q", "-u", "origin", "develop")
+    for name in ("docs/guide.md", "tests/test_a.py", "tests/test_b.py", "CHANGELOG.md",
+                 ".github/workflows/ci.yml"):
+        write(repo, name, "x")
+    fake = FakeOllama()
+    fake.replies.append({"message": "Add initial documentation and CI infrastructure"})
+    assistant = assistant_for(repo, fake.client())
+    turn = assistant.handle("faça commit de tudo e push")
+    commit = turn.prepared.plan.steps[1].args["message"]
+    assert commit == "chore: add initial documentation and CI infrastructure"
+    push = turn.prepared.previews[2].impact
+    assert "passo anterior" in push.consequences[0] and "nada novo" not in " ".join(push.warnings)
+    assert any("não contém 1 commit(s) de main" in w for w in turn.prepared.plan.warnings)
+    # remote-only branch name resolves to origin/<name>
+    git(repo, "branch", "-D", "main")
+    turn = assistant_for(repo).handle("faça merge da main")
+    assert turn.prepared.plan.steps[0].args["rev"] == "origin/main"
+    assert any("origin/main" in n for n in turn.notes)
+
+
+def test_commit_kind_majority():
+    from grippo.llm.commit import commit_kind
+
+    assert commit_kind(["tests/a.py", "tests/b.py", "tests/c.py", "tests/d.py", "README.md"],
+                       set()) == "test"
+    assert commit_kind(["docs/a.md", "tests/a.py", "src/x.py"], set()) == "chore"
+    assert commit_kind(["src/x.py"], {"src/x.py"}) == "feat"
+    assert commit_kind(["CHANGELOG.md", "LICENSE"], set()) == "docs"

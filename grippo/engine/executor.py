@@ -181,7 +181,15 @@ class GitExecutor:
                         argv=op.build(step.args, ctx),
                         risk=op.assess_risk(step.args, ctx),
                         mutating=op.mutating,
-                        impact=op.impact(step.args, ctx),
+                        impact=op.impact(
+                            step.args,
+                            OpContext(
+                                self.repo,
+                                state,
+                                self.reader,
+                                tuple(s.op for s in plan.steps[:index]),
+                            ),
+                        ),
                         # Later steps depend on the outcome of earlier ones; they are
                         # re-checked right before running.
                         errors=op.check(step.args, ctx) if index == 0 else [],

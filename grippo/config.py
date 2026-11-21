@@ -67,11 +67,19 @@ class LoggingConfig:
 
 
 @dataclass
+class UIConfig:
+    # Animated cheetah when the interactive mode starts (~0.6 s; skipped off-terminal).
+    animation: bool = True
+    animation_cycles: int = 2
+
+
+@dataclass
 class Config:
     llm: LLMConfig = field(default_factory=LLMConfig)
     git: GitConfig = field(default_factory=GitConfig)
     security: SecurityConfig = field(default_factory=SecurityConfig)
     logging: LoggingConfig = field(default_factory=LoggingConfig)
+    ui: UIConfig = field(default_factory=UIConfig)
 
     def to_dict(self) -> dict[str, dict[str, Any]]:
         return {name: dataclasses.asdict(getattr(self, name)) for name in _SECTIONS}
@@ -82,6 +90,7 @@ _SECTIONS: dict[str, type] = {
     "git": GitConfig,
     "security": SecurityConfig,
     "logging": LoggingConfig,
+    "ui": UIConfig,
 }
 
 # Environment names kept for compatibility with the 0.1 `.env.example`.
@@ -147,6 +156,8 @@ def validate(config: Config) -> None:
     for name in ("timeout_sec", "network_timeout_sec", "lock_timeout_sec"):
         if getattr(config.git, name) <= 0:
             raise ConfigError(f"git.{name} deve ser > 0")
+    if not 0 <= config.ui.animation_cycles <= 10:
+        raise ConfigError("ui.animation_cycles deve estar entre 0 e 10")
     if config.logging.level.upper() not in {"DEBUG", "INFO", "WARNING", "ERROR"}:
         raise ConfigError("logging.level deve ser DEBUG, INFO, WARNING ou ERROR")
 

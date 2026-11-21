@@ -31,12 +31,11 @@ _STATUS_ICON = {
 _MAX_OUTPUT_LINES = 80
 
 
-def show_header() -> None:
-    title = Text()
-    title.append("🪳 GRIPPO", style="bold white")
-    title.append(f"  v{__version__}  ", style="dim")
-    title.append("assistente Git local", style="dim")
-    console.print(title)
+def show_header(*, animate: bool = True, cycles: int = 2) -> None:
+    """Cheetah header (animated on a real terminal; see grippo/cli/splash.py)."""
+    from grippo.cli import splash
+
+    splash.show(console.file, __version__, animate=animate, cycles=cycles)
 
 
 def show_welcome(repo_root: Path, state: RepoState | None, llm_label: str) -> None:
@@ -47,7 +46,9 @@ def show_welcome(repo_root: Path, state: RepoState | None, llm_label: str) -> No
             f"  [dim]HEAD[/dim] {state.short_head}"
         )
     lines.append(f"[dim]LLM[/dim]          {escape(llm_label)}")
-    lines.append("[dim]Digite /help para comandos. Ctrl-D sai.[/dim]")
+    lines.append(
+        "[dim]Digite /help para comandos. Para sair: exit, Ctrl-D ou Ctrl-C duas vezes.[/dim]"
+    )
     console.print(Panel("\n".join(lines), border_style="dim", padding=(0, 1)))
 
 

@@ -105,3 +105,39 @@ def test_builtin_skills_reference_real_operations():
     for skill in skills:
         assert set(skill.tools) <= set(CATALOG), (skill.id, skill.tools)
     assert get_skill("push") is not None and get_skill("nope") is None
+
+
+@pytest.mark.parametrize("word", ["exit", "EXIT", "sair", "quit", "/exit", "/sair", "q", "sair."])
+def test_exit_words(word):
+    from grippo.cli.interface import is_exit
+
+    assert is_exit(word)
+
+
+@pytest.mark.parametrize("text", ["exit code do script", "sair da branch develop", "commit"])
+def test_not_exit(text):
+    from grippo.cli.interface import is_exit
+
+    assert not is_exit(text)
+
+
+def test_repl_exits_on_word_and_double_ctrl_c(repo, monkeypatch):
+    from grippo.cli import interface
+    from grippo.runtime import build_runtime
+
+    runtime = build_runtime(repo, use_llm=False)
+    monkeypatch.setattr(interface.renderer, "show_header", lambda **_: None)
+    for script in (["mostre o status", "exit"], [KeyboardInterrupt, KeyboardInterrupt]):
+        items = iter(script)
+
+        def fake_reader(_history, items=items):
+            def read(_prompt):
+                item = next(items)
+                if item is KeyboardInterrupt:
+                    raise KeyboardInterrupt
+                return item
+            return read
+
+        monkeypatch.setattr(interface, "make_reader", fake_reader)
+        assert interface.repl(runtime) == 0
+    runtime.close()

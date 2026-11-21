@@ -153,7 +153,8 @@ def normalize_message(message: str) -> str | None:
     if not subject:
         return None
     if len(subject) > 72:
-        subject = subject[:72].rstrip()
+        cut = subject[:72]
+        subject = (cut.rsplit(" ", 1)[0] if " " in cut[20:] else cut).rstrip(" ,;-")
     return subject if CONVENTIONAL.match(subject) else None
 
 
@@ -235,21 +236,54 @@ def _added(state: RepoState) -> set[str]:
     return {e.path for e in state.entries if e.index == "A"} | set(state.untracked)
 
 
+def _category(path: str) -> str:
+    lowered = path.lower()
+    if lowered.startswith((".github/", ".gitlab", "ci/")) or lowered.endswith(
+        (".gitlab-ci.yml", "jenkinsfile")
+    ):
+        return "ci"
+    if "test" in PurePosixPath(lowered).parts[0] or "/test" in lowered or "test_" in lowered:
+        return "test"
+    name = PurePosixPath(lowered).name
+    if PurePosixPath(lowered).suffix in _DOC_SUFFIXES or name in {"license", "changelog"}:
+        return "docs"
+    return "code"
+
+
+def commit_kind(files: list[str], added: set[str]) -> str:
+    """Conventional type from what the files are (majority >= 80 %), else chore."""
+    if not files:
+        return "chore"
+    counts: dict[str, int] = {}
+    for path in files:
+        category = _category(path)
+        counts[category] = counts.get(category, 0) + 1
+    category, count = max(counts.items(), key=lambda item: item[1])
+    if count / len(files) < 0.8:
+        return "chore"
+    if category == "code":
+        return "feat" if any(f in added for f in files) else "chore"
+    return category
+
+
+def repair_message(message: str, kind: str) -> str | None:
+    """Keep a good model sentence that only lacks the `type:` prefix."""
+    text = message.strip().strip("`\"'").splitlines()[0].strip() if message.strip() else ""
+    words = text.split()
+    if len(words) < 3 or ":" in text[:15]:
+        return None
+    if words[0].lower() in {"i", "we", "this", "the", "these", "eu", "nós", "este", "esse"}:
+        return None  # narrative, not a commit subject
+    if text[0].isupper() and (len(text) == 1 or not text[1].isupper()):
+        text = text[0].lower() + text[1:]
+    return normalize_message(f"{kind}: {text.rstrip('.')}")
+
+
 def heuristic_message(files: list[str], state: RepoState, request: str = "") -> str:
     added = _added(state)
-    suffixes = {PurePosixPath(f).suffix for f in files}
     names = [PurePosixPath(f.rstrip("/")).name for f in files]
     all_new = bool(files) and all(f in added for f in files)
-    if files and suffixes <= _DOC_SUFFIXES:
-        kind = "docs"
-    elif files and all("test" in f.lower() for f in files):
-        kind = "test"
-    elif files and all(f.startswith((".github/", ".gitlab", "ci/")) for f in files):
-        kind = "ci"
-    elif any(f in added for f in files):
-        kind = "feat"
-    else:
-        kind = "chore"
+    kind = commit_kind(files, added)
     scope = _scope(files)
     verb = "add" if all_new else "update"
     topic = ", ".join(names[:3]) + (f" and {len(names) - 3} more" if len(names) > 3 else "")
@@ -408,7 +442,13 @@ class CommitDrafter:
             notes.append(f"LLM indisponível ({error}); mensagem heurística")
             return fallback, "heuristic"
         metrics.append(reply.metrics)
-        message = normalize_message(str(data.get("message") or ""))
+        raw = str(data.get("message") or "")
+        message = normalize_message(raw)
+        if message is None:
+            message = repair_message(raw, commit_kind(files, _added(state)))
+            if message is not None:
+                notes.append("tipo Conventional Commit adicionado à mensagem do modelo")
+                return message, "llm"
         if message is None:
             notes.append(f"mensagem do modelo inválida ({data.get('message')!r}); heurística")
             return fallback, "heuristic"
