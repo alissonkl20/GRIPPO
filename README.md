@@ -1,134 +1,109 @@
 # GRIPPO
 
-**Harness de agente Git local para modelos pequenos (Ollama, ~3–4B).**
+**Assistente Git local para o terminal.** Você fala em linguagem natural; o GRIPPO lê o
+estado real do repositório, propõe a operação Git adequada, mostra o impacto, pede sua
+confirmação e executa por uma camada determinística — com um modelo de linguagem rodando
+**na sua máquina** (Ollama, ~2 GB de VRAM ou RAM).
 
-O GRIPPO ajuda no fluxo do dia a dia com **linguagem natural e contexto semântico do repositório** — não substitui o Git nem abre shell livre. O harness lê o estado real (`git`), expõe **ferramentas estruturadas** e **skills** que ensinam o modelo *como* agir em cada tarefa.
-
-Em **~4 GB de RAM**, o Ollama não “pensa” o Git inteiro: usa um [**mapa neural simbólico**](./docs/NEURAL_MAP.md) — intenção leve, visão rápida do repo, busca na skill certa e só então um **micro-plano** (poucos tokens). Diagrama: [GRIPPO-neural-map.excalidraw](./docs/diagrams/GRIPPO-neural-map.excalidraw).
-
-## Ideia inicial (MVP)
-
-Você abre o GRIPPO no repositório e pede coisas simples, por exemplo:
-
-- “adiciona só os arquivos de auth” → **`git add`**
-- “commita isso” / “faz um commit semântico” → **`git commit`**
-- “manda pro remoto” → **`git push`**
-- “guarda minhas mudanças e limpa a árvore” → **`git stash`**
-- “cria branch `feature/login`” → **`git checkout -b`**
-- “volta pra `main`” → **`git checkout` / troca de branch**
-
-O modelo **interpreta e planeja**; o harness **valida e executa**. Mensagens de commit e lista de arquivos são **propostas** até você confirmar.
-
-```
-                 ┌───────────────────────┐
-                 │        GRIPPO         │
-                 │    Git Agent Harness  │
-                 └───────────┬───────────┘
-                             │
-              ┌──────────────┼──────────────┐
-              │              │              │
-         Repository       Git Tools       Skills
-            State          (add, …)      semânticas
-              │              │              │
-              └──────────────┼──────────────┘
-                             │
-                      LLM local (Ollama)
-                             │
-              Input → estruturar → operar → executar
-                             │
-                           Git
+```text
+❯ quero fazer um commit das alterações do formulário
+╭─ operação proposta ──────────────────────────────────────────────╮
+│ Repositório  /home/voce/projetos/loja                            │
+│ Branch       feature/cadastro  HEAD 3f2a91c0                     │
+│ Working tree 0 staged, 1 não staged, 3 não rastreados            │
+│ Risco        MODERADO                                            │
+│ 1. add  (moderado)                                               │
+│   • os arquivos passam para a staging area (index)               │
+│   arquivos: src/forms/signup_form.html, src/forms/signup_form.js │
+│ 2. commit  (moderado)                                            │
+│   argumentos: {'message': 'feat(forms): add signup form'}        │
+│ ⚠ não incluídos (parecem não relacionados): scripts/cleanup.sh   │
+╰──────────────────────────────────────────────────────────────────╯
+[c] confirmar  [n] cancelar  [d] detalhes  [e] editar mensagem:
 ```
 
-## Princípio
+## O que ele é — e o que não é
 
-**LLM decide. Git verifica. Harness executa.**
+O GRIPPO opera **exclusivamente Git**: status, diff, commits, branches, merge, rebase,
+cherry-pick, revert, reset, stash, push/pull, tags e remotos. Ele analisa diffs e
+arquivos **apenas para decidir operações Git** (por exemplo, quais arquivos pertencem a um
+commit e qual mensagem usar).
 
-- Estado do repo vem sempre do Git (snapshot JSON), não do texto do modelo.
-- Mutations passam por tools fixas (`git_stage`, `git_commit`, …), não por comandos arbitrários.
-- Skills carregam o “como fazer” de cada fluxo (Conventional Commits, quando perguntar, quais tools usar).
+Ele **não** é um agente de código: não implementa funcionalidades, não corrige bugs, não
+faz code review e não substitui sua IDE.
 
-## Skills semânticas (MVP)
+## Princípios
 
-Cada skill é um `SKILL.md` em `skills/<nome>/` — é o jeito de **treinar o harness** sem encher o prompt com o manual inteiro do Git. Detalhes: [docs/SKILLS.md](./docs/SKILLS.md).
+1. **O modelo interpreta; o Git é a verdade; o código executa.** A LLM só propõe
+   intenções estruturadas (`{"op": "revert", "args": {...}}`). Quem valida, autoriza,
+   executa e verifica é código determinístico.
+2. **Nada muda sem você.** Toda operação que altera o repositório mostra repositório,
+   branch, HEAD, arquivos, commits, consequências e forma de recuperação, e exige
+   confirmação. Risco alto (reset --hard, clean, force push, exclusão forçada…) exige
+   digitar `confirmar`.
+3. **A autorização vale para aquilo que você viu.** Ela é de uso único, expira e fica
+   vinculada à operação, aos argumentos e ao estado do repositório: se algo mudar depois
+   da confirmação, o GRIPPO pede de novo.
+4. **Sem atalhos para o shell.** Nada de `shell=True`; subcomandos em allowlist; flags
+   perigosas bloqueadas; o executor recusa mutações sem ticket emitido após a autorização.
+5. **Resultado verificado.** Sucesso só é informado depois de conferir o estado real; em
+   conflito ou falha, o estado intermediário é mostrado claramente.
 
-| Skill | Operação Git | Exemplo de pedido |
-|-------|----------------|-------------------|
-| `stage-changes` | `git add` | “stage só o README”, “adiciona tudo menos tests” |
-| `semantic-commit` | `git commit` | “commita isso”, “commit semântico das mudanças staged” |
-| `push` | `git push` | “push na branch atual”, “envia pro origin” |
-| `stash-save` | `git stash` | “stash com mensagem”, “guarda mudanças locais” |
-| `stash-restore` | `git stash pop/apply` | “recupera o último stash” |
-| `branch-create` | `git checkout -b` | “cria branch feature/x a partir da atual” |
-| `branch-switch` | `git checkout` | “muda para main”, “checkout develop” |
-| `inspect-worktree` | (leitura) | status, diff, explicar mudanças |
-
-## CLI (visão)
+## Instalação rápida (Linux)
 
 ```bash
-grippo                          # sessão interativa (skills conforme intenção)
-grippo status                   # snapshot humano (sem LLM)
-grippo add "só src/auth"        # skill stage-changes
-grippo commit                   # semantic-commit + confirmação
-grippo push
-grippo stash                    # stash-save / restore conforme frase
-grippo branch                   # criar ou trocar branch
-grippo doctor                   # repo saudável? conflitos? detached?
+git clone <URL_DO_REPOSITORIO> GRIPPO
+cd GRIPPO
+./install.sh            # sem sudo; use --add-to-path se ~/.local/bin não estiver no PATH
+grippo doctor
+grippo model pull       # baixa o modelo padrão (qwen2.5:3b) no Ollama
 ```
 
-## Filosofia
+Requisitos: Linux, Python ≥ 3.11 com `venv`, Git ≥ 2.23 e, para a LLM local,
+[Ollama](https://ollama.com). Sem Ollama, o GRIPPO continua funcionando com o roteador
+determinístico (frases conhecidas). Detalhes: [INSTALL.md](INSTALL.md).
 
-| Princípio | Descrição |
-|-----------|-----------|
-| Local first | Ollama na máquina; contexto compacto para pouca RAM |
-| Git is the source of truth | Snapshot e diffs vêm do harness |
-| Small model, strong harness | Skills + estado estruturado no lugar de memorizar Git |
-| Skills composáveis | Uma skill por fluxo; você adiciona e versiona no repo |
-| Human in the loop | `commit` e `push` com preview antes de executar |
-| Safe by default | Sem shell; paths validados; policy em operações arriscadas |
+## Uso
+
+```bash
+cd ~/projetos/qualquer-repo     # funciona em qualquer diretório/subdiretório/worktree
+grippo                          # modo interativo
+grippo ask "mostre o que foi alterado"
+grippo ask "desfaça o último commit mantendo minhas alterações"
+grippo --repo ~/outro/repo status
+grippo doctor                   # diagnóstico (Git, Python, Ollama, GPU, PATH)
+grippo bench                    # mede RAM/VRAM/tempo/tokens por segundo
+grippo config set llm.model qwen2.5:3b
+grippo update                   # atualização com validação e rollback
+grippo uninstall                # preserva configurações, modelos, logs e auditoria
+```
+
+Exemplos de pedidos: "crie uma branch fix/login", "faça cherry-pick do commit abc1234",
+"quero desfazer as alterações desse commit sem apagar o histórico", "atualize minha
+branch com develop", "envie minhas alterações para o remoto", "compare minha branch com
+main", "guarde minhas alterações", "liste as branches já mescladas".
 
 ## Documentação
 
-- [ARCHITECTURE.md](./docs/ARCHITECTURE.md) — runtime, tools, agent loop, policy
-- [SKILLS.md](./docs/SKILLS.md) — como escrever skills semânticas para o MVP
-- [STRUCTURE.md](./docs/STRUCTURE.md) — pastas `app/harness`, API FastAPI, shell
-- [NEURAL_MAP.md](./docs/NEURAL_MAP.md) — ativação esparsa A→D, L1/L2, 4 GB + Ollama
-
-## Desenvolvimento (FastAPI)
-
-```bash
-python -m venv .venv && source .venv/bin/activate
-pip install -e ".[dev]"
-uvicorn app.main:app --reload --port 8765
-```
-
-- API: http://127.0.0.1:8765/docs  
-- `GET /api/v1/repo/snapshot` — estado do repo  
-- `GET /api/v1/skills` — skills carregadas de `skills/`  
-- `POST /api/v1/shell/run` — executa `git` no repo (subprocess)
-
-Variáveis: ver [.env.example](./.env.example). Shell livre só com `GRIPPO_ALLOW_ARBITRARY_SHELL=1`.
-
-## Roadmap
-
-| Etapa | Conteúdo |
-|-------|----------|
-| **MVP** | Snapshot, tools de add/commit/push/stash/branch/checkout, loop + Ollama, skills da tabela acima |
-| **Depois** | pull, divergência ahead/behind, merge/rebase, conflitos, recovery, policy avançada, plugins |
-
-## O que o GRIPPO não é
-
-IDE, agente de código geral, chatbot sem Git, nem wrapper de shell. Foco: **add, commit, push, stash, branches** e leitura do worktree — com skills que você controla.
+| Documento | Conteúdo |
+|---|---|
+| [INSTALL.md](INSTALL.md) · [UPDATING.md](UPDATING.md) · [UNINSTALL.md](UNINSTALL.md) | instalação, atualização, remoção |
+| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | módulos, fluxo de execução, decisões |
+| [docs/PERMISSIONS.md](docs/PERMISSIONS.md) | níveis de risco, autorização, autonomia, auditoria |
+| [docs/LLM.md](docs/LLM.md) | backend local, modelo, memória, medições reais e limitações |
+| [docs/CONFIGURATION.md](docs/CONFIGURATION.md) | `config.toml` e variáveis `GRIPPO_*` |
+| [docs/TESTING.md](docs/TESTING.md) | camadas de teste e como executá-las |
+| [docs/RELEASING.md](docs/RELEASING.md) | versionamento e publicação |
+| [docs/GIT.md](docs/GIT.md) · [docs/SKILLS.md](docs/SKILLS.md) · [docs/NEURAL_MAP.md](docs/NEURAL_MAP.md) | léxico Git, skills, roteamento |
+| [CONTRIBUTING.md](CONTRIBUTING.md) · [SECURITY.md](SECURITY.md) · [CHANGELOG.md](CHANGELOG.md) | contribuição, segurança, histórico |
 
 ## Status
 
-🚧 **MVP em andamento.** Harness em Python (FastAPI), skills em `skills/`, Git via shell controlado.
+Versão **0.2.0** (pré-1.0). Testado em Ubuntu 26.04 / Python 3.14 / Git 2.53 / Ollama
+0.40 / RTX 3060. Outras distribuições ainda não foram testadas — veja
+[INSTALL.md](INSTALL.md#compatibilidade).
 
-## Contributing
+## Licença
 
-Contribuições: parsers de estado Git, providers Ollama, agent loop, **novas skills semânticas**, testes com repos temporários, benchmarks com modelos 3B–4B Q4.
-
-## License
-
-TBD.
-
-**GRIPPO** — *Your local Git agent.* Understand. Plan. Execute. Verify.
+**A definir** — veja [LICENSE](LICENSE). Até que uma licença open source seja escolhida,
+o código não deve ser considerado livre para redistribuição.

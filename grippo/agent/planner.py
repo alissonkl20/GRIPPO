@@ -1,0 +1,299 @@
+"""Interpretation + repository state → concrete Plan (or a question / answer).
+
+High-level ("virtual") intents are expanded here using the real repository state;
+the LLM is never trusted to decide which files to stage or which flags to pass.
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass, field
+from typing import Any
+
+from grippo.agent.router import Interpretation, StepSpec
+from grippo.agent.session import PendingChoice
+from grippo.engine.executor import GitExecutor
+from grippo.engine.plan import Plan
+from grippo.errors import ValidationError
+from grippo.git.state import RepoState
+from grippo.llm.commit import CommitDraft, CommitDrafter, normalize_message
+
+
+@dataclass
+class PlanOutcome:
+    kind: str  # plan | clarify | answer | noop
+    plan: Plan | None = None
+    message: str = ""
+    pending: PendingChoice | None = None
+    draft: CommitDraft | None = None
+    notes: list[str] = field(default_factory=list)
+
+
+class Planner:
+    def __init__(self, executor: GitExecutor, drafter: CommitDrafter) -> None:
+        self.executor = executor
+        self.drafter = drafter
+
+    @property
+    def reader(self):  # type: ignore[no-untyped-def]
+        return self.executor.reader
+
+    def plan(self, interpretation: Interpretation, state: RepoState) -> PlanOutcome:
+        notes = list(interpretation.notes)
+        if interpretation.action == "answer":
+            return PlanOutcome("answer", message=interpretation.reply, notes=notes)
+        if interpretation.action == "clarify":
+            return PlanOutcome("clarify", message=interpretation.question, notes=notes)
+
+        steps: list[StepSpec] = []
+        warnings: list[str] = []
+        draft: CommitDraft | None = None
+        for op, args in interpretation.steps:
+            expander = _EXPANDERS.get(op)
+            if expander is None:
+                steps.append((op, args))
+                continue
+            outcome = expander(self, args, state, steps)
+            if isinstance(outcome, PlanOutcome):
+                outcome.notes = notes + outcome.notes
+                return outcome
+            new_steps, new_warnings, new_draft = outcome
+            steps.extend(new_steps)
+            warnings.extend(new_warnings)
+            draft = new_draft or draft
+        try:
+            plan = self.executor.build_plan(steps, interpretation.reply, warnings)
+        except ValidationError as error:
+            return PlanOutcome(
+                "clarify", message=f"Não consigo montar a operação: {error}", notes=notes
+            )
+        return PlanOutcome(
+            "plan",
+            plan=plan,
+            message=interpretation.reply,
+            draft=draft,
+            notes=notes + (draft.notes if draft else []),
+        )
+
+    # ------------------------------------------------------------------ expanders
+    def _commit(
+        self, args: dict[str, Any], state: RepoState, prior: list[StepSpec]
+    ) -> PlanOutcome | tuple[list[StepSpec], list[str], CommitDraft | None]:
+        if state.conflicted:
+            return PlanOutcome(
+                "clarify",
+                message="Há conflitos não resolvidos: "
+                + ", ".join(state.conflicted)
+                + ". Resolva-os antes do commit.",
+            )
+        if state.in_progress in {"merge", "cherry-pick", "revert", "rebase"}:
+            op = f"{state.in_progress.replace('-', '_')}_continue"
+            return PlanOutcome(
+                "clarify",
+                message=f"Há um {state.in_progress} em andamento: "
+                f'use "continuar o {state.in_progress}" ({op}) para concluí-lo.',
+            )
+        guard = self._branch_guard(args.get("branch"), state, "commitar")
+        if guard is not None:
+            return guard
+        request = str(args.get("request") or "")
+        explicit_paths = args.get("paths")
+        warnings: list[str] = []
+        if state.staged and not explicit_paths:
+            candidates = state.staged
+            draft = self.drafter.draft(request, state, self.reader, candidates, staged_only=True)
+            steps: list[StepSpec] = []
+            if state.unstaged or state.untracked:
+                warnings.append(
+                    "somente o que já está staged entra no commit; "
+                    f"{len(state.unstaged) + len(state.untracked)} arquivo(s) "
+                    "ficam de fora"
+                )
+        else:
+            candidates = list(dict.fromkeys(state.unstaged + list(state.untracked)))
+            if explicit_paths:
+                wanted = explicit_paths if isinstance(explicit_paths, list) else [explicit_paths]
+                candidates = [
+                    c
+                    for c in candidates
+                    if any(c == w or c.startswith(str(w).rstrip("/") + "/") for w in wanted)
+                ] or [str(w) for w in wanted]
+            if not candidates:
+                return PlanOutcome("noop", message="Nada para commitar: o working tree está limpo.")
+            draft = self.drafter.draft(request, state, self.reader, candidates)
+            if not draft.files and draft.unrelated:
+                listing = ", ".join(draft.unrelated[:12])
+                return PlanOutcome(
+                    "clarify",
+                    message=f'Não identifiquei quais alterações correspondem a "{request}". '
+                    f"Arquivos alterados: {listing}. Diga quais arquivos incluir "
+                    '(ex.: "commit de src/forms") ou peça "commit de tudo".',
+                )
+            if not draft.files:
+                return PlanOutcome(
+                    "noop",
+                    message="Nenhum arquivo elegível para commit "
+                    "(arquivos sensíveis são sempre excluídos).",
+                )
+            steps = [("add", {"paths": draft.files})]
+        if draft.excluded_sensitive:
+            warnings.append(
+                "arquivos possivelmente sensíveis NÃO incluídos: "
+                + ", ".join(draft.excluded_sensitive)
+            )
+        if draft.unrelated:
+            warnings.append(
+                "não incluídos (parecem não relacionados): " + ", ".join(draft.unrelated[:15])
+            )
+        message = draft.message
+        if args.get("message"):
+            explicit = normalize_message(str(args["message"]))
+            if explicit:
+                message = explicit
+            else:
+                warnings.append(
+                    f"mensagem sugerida {str(args['message'])!r} não segue Conventional "
+                    "Commits; usando a mensagem gerada (edite com [e])"
+                )
+        steps.append(("commit", {"message": message}))
+        return steps, warnings, draft
+
+    def _branch_guard(self, wanted: Any, state: RepoState, verb: str) -> PlanOutcome | None:
+        """The user named a branch other than the current one: never act on the wrong branch."""
+        if not wanted or wanted == state.branch:
+            return None
+        name = str(wanted)
+        exists = self.reader.branch_exists(name) or any(
+            r.split("/", 1)[1] == name for r in self.reader.remote_branches()
+        )
+        if not exists:
+            return None  # not a branch name ("commit para o formulário")
+        return PlanOutcome(
+            "clarify",
+            message=f"Você está na branch {state.branch or '(HEAD destacado)'}, mas pediu para "
+            f'{verb} em {name}. Nada foi feito. Primeiro mude de branch ("mude para {name}"; '
+            "as alterações locais acompanham a troca, e o Git recusa se houver conflito) "
+            "e repita o pedido.",
+        )
+
+    def _publish(
+        self, args: dict[str, Any], state: RepoState, prior: list[StepSpec]
+    ) -> PlanOutcome | tuple[list[StepSpec], list[str], None]:
+        remotes = self.reader.remotes()
+        if not remotes:
+            return PlanOutcome(
+                "answer",
+                message="Nenhum remoto configurado. Adicione um com "
+                '"adicione o remoto origin <url>".',
+            )
+        guard = self._branch_guard(args.get("branch"), state, "enviar")
+        if guard is not None:
+            return guard
+        branch = state.branch
+        if not branch:
+            return PlanOutcome("clarify", message="HEAD destacado: para qual branch devo enviar?")
+        remote = args.get("remote") or (state.upstream.split("/", 1)[0] if state.upstream else None)
+        if not remote:
+            remote = (
+                "origin" if "origin" in remotes else (remotes[0] if len(remotes) == 1 else None)
+            )
+        if not remote:
+            return PlanOutcome("clarify", message=f"Para qual remoto? ({', '.join(remotes)})")
+        committing = any(op == "commit" for op, _ in prior)
+        warnings = []
+        if state.upstream and not committing:
+            if state.ahead == 0 and state.behind == 0:
+                return PlanOutcome(
+                    "noop", message=f"Nada para enviar: {branch} está igual a {state.upstream}."
+                )
+            if state.behind:
+                return PlanOutcome(
+                    "clarify",
+                    message=f"{branch} está {state.behind} commit(s) atrás de {state.upstream}: "
+                    'o push seria rejeitado. Faça pull primeiro ("faça pull") — '
+                    "force push só se você pedir explicitamente.",
+                )
+        if (state.unstaged or state.untracked) and not committing:
+            warnings.append("alterações não commitadas não são enviadas")
+        push_args: dict[str, Any] = {"remote": remote, "branch": branch}
+        if not state.upstream:
+            push_args["set_upstream"] = True
+        return [("push", push_args)], warnings, None
+
+    def _sync(
+        self, args: dict[str, Any], state: RepoState, prior: list[StepSpec]
+    ) -> PlanOutcome | tuple[list[StepSpec], list[str], None]:
+        base = args.get("base")
+        if not base:
+            return PlanOutcome("clarify", message="Atualizar com qual branch?")
+        if state.staged or state.unstaged:
+            return PlanOutcome(
+                "clarify",
+                message="Há alterações locais não commitadas. Faça "
+                "commit ou stash antes de atualizar a branch (nada foi alterado).",
+            )
+        remote = state.upstream.split("/", 1)[0] if state.upstream else "origin"
+        steps: list[StepSpec] = []
+        target = str(base)
+        remote_ref = f"{remote}/{base}"
+        if remote in self.reader.remotes() and "/" not in target:
+            steps.append(("fetch", {"remote": remote}))
+            if self.reader.resolve(remote_ref) or not self.reader.branch_exists(target):
+                target = remote_ref
+        elif not self.reader.resolve(target):
+            return PlanOutcome("clarify", message=f"Não encontrei a branch {base}.")
+        strategy = args.get("strategy")
+        if strategy not in {"merge", "rebase"}:
+            published = bool(state.upstream)
+            rec = "merge" if published else "rebase"
+            why = (
+                "sua branch já está publicada; merge preserva o histórico"
+                if published
+                else "sua branch é só local; rebase deixa o histórico linear"
+            )
+            return PlanOutcome(
+                "clarify",
+                message=f"Atualizar {state.branch} com {target} via merge ou rebase? "
+                f'Recomendo {rec} ({why}). Responda "merge" ou "rebase".',
+                pending=PendingChoice("sync_branch", dict(args), "strategy", ("merge", "rebase")),
+            )
+        if strategy == "merge":
+            steps.append(("merge", {"rev": target}))
+        else:
+            steps.append(("rebase", {"upstream": target}))
+        return steps, [], None
+
+    def _undo(
+        self, args: dict[str, Any], state: RepoState, prior: list[StepSpec]
+    ) -> PlanOutcome | tuple[list[StepSpec], list[str], None]:
+        if not state.head:
+            return PlanOutcome("noop", message="O repositório ainda não tem commits.")
+        if not self.reader.resolve("HEAD~1"):
+            return PlanOutcome(
+                "answer",
+                message="Este é o primeiro commit do repositório; "
+                "não há commit anterior para onde voltar.",
+            )
+        keep = args.get("keep_changes", True) not in (False, "false", 0)
+        return [("reset", {"mode": "soft" if keep else "hard", "target": "HEAD~1"})], [], None
+
+    def _discard(
+        self, args: dict[str, Any], state: RepoState, prior: list[StepSpec]
+    ) -> PlanOutcome | tuple[list[StepSpec], list[str], None]:
+        paths = args.get("paths") or state.unstaged
+        if not paths:
+            return PlanOutcome("noop", message="Não há alterações não staged para descartar.")
+        warnings = (
+            ["arquivos não rastreados não são afetados (isso seria clean)"]
+            if state.untracked
+            else []
+        )
+        return [("restore", {"paths": paths})], warnings, None
+
+
+_EXPANDERS = {
+    "commit_changes": Planner._commit,
+    "publish": Planner._publish,
+    "sync_branch": Planner._sync,
+    "undo_last_commit": Planner._undo,
+    "discard_changes": Planner._discard,
+}
