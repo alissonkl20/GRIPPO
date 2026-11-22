@@ -46,7 +46,9 @@ grippo config path                      # onde fica cada coisa
 | `autonomy_level` | `2` | 0–3, veja [PERMISSIONS.md](PERMISSIONS.md) |
 | `auth_ttl_sec` | `300` | validade de uma confirmação |
 | `auto_approve` | `[]` | operações moderadas aprovadas automaticamente no nível 3 |
-| `protected_branches` | `["main","master","develop"]` | aviso extra em force push |
+| `protected_branches` | `["main","master","develop"]` | aviso extra em force push; **não podem ser excluídas** pelo GRIPPO |
+| `require_tty` | `false` | só aceita confirmação vinda de um terminal interativo (recomendado se uma IA tem shell na máquina) |
+| `proposal_ttl_min` | `15` | minutos de validade de uma proposta feita por IA via MCP |
 
 ## `[ui]`
 

@@ -20,8 +20,9 @@ Antes de qualquer operação protegida o GRIPPO mostra: operação e argumentos,
 branch, HEAD, estado do working tree, arquivos afetados, commits envolvidos,
 consequências, risco e forma de recuperação (com o SHA para voltar). Exemplos:
 
-- **reset --hard**: lista os arquivos com alterações não commitadas que serão perdidas e
-  avisa que elas **não** ficam no reflog.
+- **reset --hard**: lista os arquivos com alterações não commitadas que serão perdidas.
+  Antes de executar, o GRIPPO salva essas alterações em um backup (veja
+  [Proteções contra erros irreversíveis](#proteções-contra-erros-irreversíveis)).
 - **rebase**: lista os commits que serão reaplicados; avisa que os hashes mudam e, se
   publicados, que será preciso force push.
 - **revert**: explica que um novo commit desfaz o anterior sem reescrever o histórico.
@@ -84,3 +85,45 @@ importar os internos; o modelo de ameaça cobre a LLM, o usuário e a entrada ex
 comando, status, código de saída, duração, verificação, erro), sempre com timestamp UTC,
 sessão, repositório, branch, HEAD e risco. Tokens, senhas e credenciais em URLs são
 mascarados (`***`).
+
+## Proteções contra erros irreversíveis
+
+Além da confirmação, quatro camadas impedem que uma LLM (ou outra IA) faça algo que você
+não pediu. Todas rodam em código determinístico, **antes** de qualquer comando Git.
+
+1. **Aterramento no pedido** (`grippo/engine/guard.py`). Para operações destrutivas
+   (`rebase`, `revert`, `reset`, `branch_delete`, `push_delete`, `tag_delete*`,
+   `cherry_pick`, `clean`, `restore`, `rm`, `stash_drop`) todo alvo — branch, commit, tag,
+   caminho — precisa **aparecer no texto do seu pedido**. `HEAD`/`HEAD~N` (N ≤ 5) só valem
+   se você disse "último/anterior commit". Opções agressivas (`reset --hard`, `-D`,
+   force push) exigem palavras explícitas (*hard*, *descarte*, *force*…). Caso contrário a
+   proposta é recusada **sem nem chegar à tela de confirmação**:
+   `"arruma aí"` → `reset --hard` é bloqueado.
+2. **Guarda de no-op.** `rebase` da branch sobre ela mesma, sobre algo que ela já contém,
+   `merge` de branch já incorporada ou de si mesma e `reset --soft` para o próprio HEAD são
+   recusados com *"nada a fazer"* em vez de executar. `faça rebase com main` estando na
+   `main` explica o porquê.
+3. **Branches protegidas** (`security.protected_branches`) nunca são excluídas pelo GRIPPO.
+4. **Backup automático** (`grippo/engine/backup.py`). Antes de `reset`, `rebase`,
+   exclusão de branch/tag remota, force push, `clean`, `restore`, `rm` e `stash drop`, o
+   GRIPPO fixa o estado atual em `refs/grippo/backup/<data>-<branch>-<op>`:
+   - o HEAD (e a ponta da branch que será excluída) continuam alcançáveis, mesmo após `git gc`;
+   - alterações **não commitadas** de arquivos rastreados são salvas como um commit de
+     backup (`...-wip`) — nem o `reset --hard` as perde;
+   - se o backup falhar, **a operação é abortada** (falha fechada).
+
+   Liste e recupere:
+
+   ```bash
+   grippo backups                               # lista
+   git reset --hard refs/grippo/backup/<nome>   # volta o HEAD
+   git checkout refs/grippo/backup/<nome>-wip -- .   # recupera o trabalho não commitado
+   ```
+
+   O `runner` só aceita `update-ref` no formato exato `refs/grippo/backup/<nome> <sha>`.
+
+### IAs externas (MCP)
+
+Ferramentas de IA que usam o GRIPPO via [MCP](MCP.md) **só propõem**: não existe
+ferramenta de aprovar ou executar. A mudança só acontece quando **você** roda
+`grippo approve <id>` num terminal interativo, onde vê o impacto real e confirma.

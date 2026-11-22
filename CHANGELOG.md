@@ -5,6 +5,24 @@ versionamento: [Semantic Versioning](https://semver.org/lang/pt-BR/).
 
 ## [Unreleased]
 
+### Adicionado
+- **Integração com outras IAs (MCP):** `grippo mcp` expõe o GRIPPO a Claude Code, Cursor,
+  Claude Desktop e qualquer cliente MCP. A IA consulta e **propõe**; só você aprova, com
+  `grippo approve <id>` num terminal interativo (nenhuma ferramenta aprova ou executa).
+  `grippo mcp --print-config` mostra a configuração pronta; `grippo proposals` lista o histórico.
+- **Explicação de conflitos:** "como resolvo o conflito?" / "por que deu conflito?" mostra
+  quem mudou o quê, em quais commits e os trechos conflitantes, com um resumo opcional do
+  modelo local. Só explica; não escolhe o lado.
+- **Guardas contra erros irreversíveis:** aterramento no pedido (alvos destrutivos precisam
+  ter sido citados), recusa de no-op (`rebase` sobre a própria branch, merge já incorporado),
+  branches protegidas não são excluídas e **backup automático** em `refs/grippo/backup`
+  (inclui alterações não commitadas) antes de reset/rebase/exclusões/force push/clean/restore.
+  `grippo backups` lista os backups.
+- Opções `security.require_tty` e `security.proposal_ttl_min`.
+- "volte para a main"; "continue o merge" faz `add` dos arquivos resolvidos (e avisa se
+  ainda restam marcadores de conflito); sugestão de repositórios em subpastas.
+- Guias: `docs/GUIA.md` (passo a passo) e `docs/MCP.md`.
+
 ### Alterado
 - Interface colorida: paleta única (âmbar), prompt com a branch atual
   (`grippo develop* ❯`), painéis de boas-vindas/estado/ajuda, etiquetas de risco,
