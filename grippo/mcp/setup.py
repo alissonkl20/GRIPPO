@@ -3,28 +3,26 @@
 from __future__ import annotations
 
 import json
+import shlex
 import shutil
 from pathlib import Path
 
 from grippo.paths import get_paths
 
 
-def _command() -> str:
-    return shutil.which("grippo") or str(get_paths().launcher)
-
-
-def server_entry(repo: Path | None) -> dict[str, object]:
-    args = (["--repo", str(repo.resolve())] if repo else []) + ["mcp"]
-    return {"command": _command(), "args": args}
+def server_command(repo: Path | None) -> list[str]:
+    """argv that starts the server (``--repo`` is a global option, so it precedes ``mcp``)."""
+    command = shutil.which("grippo") or str(get_paths().launcher)
+    return [command, *(["--repo", str(repo.resolve())] if repo else []), "mcp"]
 
 
 def render_config(repo: Path | None = None) -> str:
-    entry = server_entry(repo)
-    quoted = " ".join([str(entry["command"]), *map(str, entry["args"])])  # type: ignore[call-overload]
+    command, *args = server_command(repo)
+    entry = {"command": command, "args": args}
     return "\n".join(
         [
             "# Claude Code (escopo do projeto):",
-            f"claude mcp add grippo -- {quoted}",
+            f"claude mcp add grippo -- {shlex.join([command, *args])}",
             "",
             "# Claude Desktop / Cursor / Windsurf / qualquer cliente MCP (JSON):",
             json.dumps({"mcpServers": {"grippo": entry}}, indent=2),

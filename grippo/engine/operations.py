@@ -231,6 +231,20 @@ def _rev_errors(ctx: OpContext, *revs: str | None) -> list[str]:
     return [f"revisão não encontrada: {r}" for r in revs if r and not ctx.reader.resolve(r)]
 
 
+_PROTECTED: set[str] = {"main", "master", "develop"}
+
+
+def set_protected_branches(names: list[str]) -> None:
+    """Branches GRIPPO never deletes (synced from ``security.protected_branches``)."""
+    _PROTECTED.clear()
+    _PROTECTED.update(names)
+
+
+def _is_current(rev: str, sha: str | None, c: OpContext) -> bool:
+    """``rev`` names the current branch or resolves (``sha``) to the current HEAD."""
+    return rev == c.state.branch or (bool(c.state.head) and sha == c.state.head)
+
+
 def _commit_list(commits: list[Any], limit: int = 15) -> list[str]:
     shown = [str(c) for c in commits[:limit]]
     if len(commits) > limit:
@@ -824,14 +838,16 @@ def _merge_check(a: Args, c: OpContext) -> list[str]:
     errors = _no_in_progress(a, c) + _needs_head(c) + _rev_errors(c, a["rev"])
     if a.get("no_ff") and a.get("ff_only"):
         errors.append("no_ff e ff_only são incompatíveis")
-    if not errors and c.state.head:
-        if _same_as_current(a["rev"], c):
-            errors.append(
-                f"nada a fazer: você já está em {c.state.branch or 'HEAD'}; "
-                "não dá para mesclar uma branch nela mesma"
-            )
-        elif (sha := c.reader.resolve(a["rev"])) and c.reader.is_ancestor(sha, c.state.head):
-            errors.append(f"nada a fazer: {a['rev']} já está contido na branch atual")
+    if errors or not c.state.head:
+        return errors
+    sha = c.reader.resolve(a["rev"])
+    if _is_current(a["rev"], sha, c):
+        errors.append(
+            f"nada a fazer: você já está em {c.state.branch or 'HEAD'}; "
+            "não dá para mesclar uma branch nela mesma"
+        )
+    elif sha and c.reader.is_ancestor(sha, c.state.head):
+        errors.append(f"nada a fazer: {a['rev']} já está contido na branch atual")
     return errors
 
 
@@ -965,7 +981,7 @@ _register(
 def _reset_check(a: Args, c: OpContext) -> list[str]:
     errors = _needs_head(c) + _rev_errors(c, a["target"])
     if not errors and a["mode"] == "soft" and c.reader.resolve(a["target"]) == c.state.head:
-        errors.append("nada a fazer: reset --soft para o próprio HEAD não altera nada")
+        return ["nada a fazer: reset --soft para o próprio HEAD não altera nada"]
     return errors
 
 
@@ -1034,25 +1050,21 @@ _register(
 )
 
 
-def _same_as_current(rev: str, c: OpContext) -> bool:
-    """``rev`` is the current branch (by name) or points at the current HEAD."""
-    return rev == c.state.branch or (bool(c.state.head) and c.reader.resolve(rev) == c.state.head)
-
-
 def _rebase_noop(a: Args, c: OpContext) -> list[str]:
     if a.get("onto") or not c.state.head:
         return []
     upstream = a["upstream"]
-    if _same_as_current(upstream, c):
+    sha = c.reader.resolve(upstream)
+    if _is_current(upstream, sha, c):
         return [
             f"nada a fazer: você já está em {c.state.branch or 'HEAD'}, que é o próprio "
             f"{upstream}; rebase de uma branch sobre ela mesma não altera nada"
         ]
-    sha = c.reader.resolve(upstream)
-    has_merges = c.reader.run(["rev-list", "--merges", "-n1", f"{upstream}..HEAD"]).stdout.strip()
-    if sha and not has_merges and c.reader.is_ancestor(sha, c.state.head):
-        return [f"nada a fazer: a branch atual já está baseada em {upstream}"]
-    return []
+    if not (sha and c.reader.is_ancestor(sha, c.state.head)):
+        return []
+    # With merge commits a rebase would flatten history, so it is not a no-op.
+    merges = c.reader.run(["rev-list", "--merges", "-n1", f"{upstream}..HEAD"]).stdout.strip()
+    return [] if merges else [f"nada a fazer: a branch atual já está baseada em {upstream}"]
 
 
 def _rebase_check(a: Args, c: OpContext) -> list[str]:
@@ -1405,14 +1417,6 @@ def _push_impact(a: Args, c: OpContext) -> Impact:
         else "git revert dos commits enviados (não reescreva histórico público)"
     )
     return Impact(consequences, recovery, commits=_commit_list(commits), warnings=warnings)
-
-
-_PROTECTED: set[str] = {"main", "master", "develop"}
-
-
-def set_protected_branches(names: list[str]) -> None:
-    _PROTECTED.clear()
-    _PROTECTED.update(names)
 
 
 _register(

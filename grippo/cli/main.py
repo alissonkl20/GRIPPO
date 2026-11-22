@@ -5,11 +5,16 @@ from __future__ import annotations
 import argparse
 import json
 import sys
-from collections.abc import Sequence
+from collections.abc import Iterator, Sequence
+from contextlib import contextmanager
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from grippo import __version__
 from grippo.errors import GrippoError
+
+if TYPE_CHECKING:
+    from grippo.runtime import Runtime
 
 
 def _parser() -> argparse.ArgumentParser:
@@ -169,6 +174,17 @@ def _cmd_config(args: argparse.Namespace) -> int:
     return 0
 
 
+@contextmanager
+def _runtime(args: argparse.Namespace, *, use_llm: bool = False) -> Iterator[Runtime]:
+    from grippo.runtime import build_runtime
+
+    runtime = build_runtime(args.repo, use_llm=use_llm)
+    try:
+        yield runtime
+    finally:
+        runtime.close()
+
+
 def _cmd_mcp(args: argparse.Namespace) -> int:
     if args.print_config:
         from grippo.mcp.setup import render_config
@@ -178,33 +194,25 @@ def _cmd_mcp(args: argparse.Namespace) -> int:
     from grippo.mcp.proposals import ProposalStore
     from grippo.mcp.server import McpServer
     from grippo.mcp.tools import GrippoTools
-    from grippo.runtime import build_runtime
 
-    runtime = build_runtime(args.repo, use_llm=False)
-    try:
-        store = ProposalStore(runtime.paths.proposals_dir)
-        McpServer(GrippoTools(runtime, store)).serve()
-        return 0
-    finally:
-        runtime.close()
+    with _runtime(args) as runtime:
+        McpServer(GrippoTools(runtime, ProposalStore(runtime.paths.proposals_dir))).serve()
+    return 0
 
 
 def _cmd_backups(args: argparse.Namespace) -> int:
     from grippo.engine.backup import list_backups
-    from grippo.runtime import build_runtime
 
-    runtime = build_runtime(args.repo, use_llm=False)
-    try:
+    with _runtime(args) as runtime:
         rows = list_backups(runtime.repo.root)
-        if not rows:
-            print("nenhum backup de segurança.")
-        for ref, sha, subject in rows:
-            print(f"{ref}  {sha}  {subject}")
-        if rows:
-            print("\nrecuperar: git reset --hard <ref>   ou   git branch recuperada <ref>")
-        return 0
-    finally:
-        runtime.close()
+    for ref, sha, subject in rows:
+        print(f"{ref}  {sha}  {subject}")
+    print(
+        "\nrecuperar: git reset --hard <ref>   ou   git branch recuperada <ref>"
+        if rows
+        else "nenhum backup de segurança."
+    )
+    return 0
 
 
 def _dispatch(args: argparse.Namespace) -> int:

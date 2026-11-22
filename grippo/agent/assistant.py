@@ -12,12 +12,11 @@ from grippo.agent.planner import Planner, PlanOutcome
 from grippo.agent.router import Interpretation, fold
 from grippo.agent.session import Session
 from grippo.engine.executor import GitExecutor
-from grippo.engine.guard import grounding_problems
+from grippo.engine.guard import grounding_error
 from grippo.engine.permissions import Decision
 from grippo.engine.plan import PlanResult, PreparedPlan
 from grippo.errors import GrippoError
 from grippo.git import conflicts
-from grippo.git.state import RepoState
 from grippo.llm.client import LLMMetrics
 from grippo.llm.interpreter import Interpreter
 
@@ -79,7 +78,7 @@ class Assistant:
             )
         metrics = [self.interpreter.last_metrics] if self.interpreter.last_metrics else []
         if interpretation.action == "explain_conflict":
-            text = self._explain_conflict(state)
+            text = conflicts.explain(self.executor.reader, state, self.interpreter.llm)
             self.session.add(message, text)
             return TurnResult("answer", text, interpretation=interpretation, metrics=metrics)
         outcome = self.planner.plan(interpretation, state)
@@ -98,9 +97,9 @@ class Assistant:
                 notes=notes,
             )
         if interpretation.source != "session":
-            problems = grounding_problems(outcome.plan, message)
+            problems = grounding_error(outcome.plan, message)
             if problems:
-                text = "Não executei: " + "; ".join(problems) + ". Diga explicitamente o alvo."
+                text = f"Não executei: {problems}. Diga explicitamente o alvo."
                 self.session.add(message, text)
                 return TurnResult(
                     "denied",
@@ -136,16 +135,6 @@ class Assistant:
             return base
         self.session.add(message, f"propôs {_ops(prepared)} (aguardando confirmação)")
         return base
-
-    def _explain_conflict(self, state: RepoState) -> str:
-        """Why the conflict happened — facts first, optional model recap, never a resolution."""
-        report = conflicts.collect(self.executor.reader, state)
-        if report is None:
-            return "Não há conflito em andamento neste repositório."
-        text = conflicts.render(report)
-        client = self.interpreter.llm
-        summary = conflicts.llm_summary(client, report) if client is not None else None
-        return f"{summary}\n\n{text}" if summary else text
 
     def decide(self, prepared: PreparedPlan, decision: Decision) -> PlanResult | None:
         """Apply the user's decision. Returns None if cancelled."""

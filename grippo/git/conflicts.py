@@ -11,11 +11,14 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from grippo.errors import LLMError
 from grippo.git.reader import GitReader
 from grippo.git.state import FileEntry, RepoState
-from grippo.llm.client import OllamaClient
+
+if TYPE_CHECKING:
+    from grippo.llm.client import OllamaClient
 
 MAX_FILES = 8
 MAX_HUNKS = 3
@@ -25,23 +28,23 @@ _OTHER_HEAD = {
     "cherry-pick": "CHERRY_PICK_HEAD",
     "revert": "REVERT_HEAD",
     "rebase": "REBASE_HEAD",
-    "rebase-merge": "REBASE_HEAD",
-    "rebase-apply": "REBASE_HEAD",
 }
+_CREATED_ONE_SIDE = "um lado criou o arquivo e o outro criou/alterou com outro conteúdo"
 _KINDS = {
     ("U", "U"): "os dois lados alteraram as mesmas linhas",
     ("A", "A"): "os dois lados criaram este arquivo com conteúdos diferentes",
     ("D", "D"): "os dois lados removeram o arquivo",
     ("D", "U"): "um lado removeu o arquivo e o outro o alterou",
     ("U", "D"): "um lado alterou o arquivo e o outro o removeu",
-    ("A", "U"): "um lado criou o arquivo e o outro criou/alterou com outro conteúdo",
-    ("U", "A"): "um lado criou o arquivo e o outro criou/alterou com outro conteúdo",
-}
-_COMMAND_WORD = {
-    "rebase-merge": "rebase",
-    "rebase-apply": "rebase",
+    ("A", "U"): _CREATED_ONE_SIDE,
+    ("U", "A"): _CREATED_ONE_SIDE,
 }
 _MARKER = re.compile(r"^(<{7}|={7}|>{7})(?: (.*))?$")
+_START, _MIDDLE, _END = (
+    re.compile(r"^<{7}( |$)", re.M),
+    re.compile(r"^={7}$", re.M),
+    re.compile(r"^>{7}( |$)", re.M),
+)
 
 
 @dataclass
@@ -91,8 +94,8 @@ def parse_hunks(text: str) -> list[Hunk]:
     return hunks
 
 
-def _label(reader: GitReader, rev: str, fallback: str) -> str:
-    sha = reader.resolve(rev)
+def _label(reader: GitReader, sha: str | None, fallback: str) -> str:
+    """``branch (sha subject)`` for a commit; ``fallback`` when it cannot be resolved."""
     if not sha:
         return fallback
     names = reader.run(
@@ -105,10 +108,14 @@ def _label(reader: GitReader, rev: str, fallback: str) -> str:
             "refs/remotes",
         ]
     )
-    branch = names.stdout.split()[0] if names.ok and names.stdout.split() else ""
-    subject = reader.commits(sha, limit=1)
-    text = subject[0].subject if subject else ""
-    return f"{branch or sha[:8]} ({sha[:8]} {text})".strip()
+    refs = names.stdout.split() if names.ok else []
+    subject = next((c.subject for c in reader.commits(sha, limit=1)), "")
+    return f"{refs[0] if refs else sha[:8]} ({sha[:8]} {subject})".strip()
+
+
+def operation_kind(operation: str) -> str:
+    """``rebase-merge``/``rebase-apply`` → ``rebase``; other operations unchanged."""
+    return "rebase" if operation.startswith("rebase") else operation
 
 
 def _commits_touching(reader: GitReader, spec: str, path: str) -> list[str]:
@@ -123,14 +130,13 @@ def _kind(entry: FileEntry) -> str:
 def collect(reader: GitReader, state: RepoState) -> ConflictReport | None:
     if not state.conflicted:
         return None
-    operation = state.in_progress or "merge"
+    operation = operation_kind(state.in_progress or "merge")
     other_head = _OTHER_HEAD.get(operation, "MERGE_HEAD")
     other = reader.resolve(other_head)
     base_result = reader.run(["merge-base", "HEAD", other_head]) if other else None
     base = base_result.stdout.strip() if base_result and base_result.ok else None
-    rebasing = operation.startswith("rebase")
-    our_label = _label(reader, "HEAD", "HEAD")
-    their_label = _label(reader, other_head, other_head) if other else "(desconhecido)"
+    our_label = _label(reader, state.head, "HEAD")
+    their_label = _label(reader, other, "(desconhecido)")
     files = []
     entries = [e for e in state.entries if e.conflicted]
     for entry in entries[:MAX_FILES]:
@@ -146,7 +152,7 @@ def collect(reader: GitReader, state: RepoState) -> ConflictReport | None:
         conflict.hunk_total = len(found)
         conflict.hunks = found[:MAX_HUNKS]
         files.append(conflict)
-    if rebasing:
+    if operation == "rebase":
         # During a rebase "ours" is the branch being rebuilt onto the new base.
         our_label, their_label = f"{our_label} [base nova]", f"{their_label} [seu commit]"
     return ConflictReport(
@@ -182,7 +188,7 @@ def render(report: ConflictReport) -> str:
             out += ["   A:", *_clip(hunk.ours), "   B:", *_clip(hunk.theirs)]
     if report.omitted:
         out.append(f"\n… e mais {report.omitted} arquivo(s) em conflito.")
-    command = _COMMAND_WORD.get(report.operation, report.operation)
+    command = report.operation
     out += [
         "",
         "O GRIPPO não escolhe o lado por você. Edite os arquivos (ou peça ao seu assistente "
@@ -219,3 +225,38 @@ def llm_summary(client: OllamaClient, report: ConflictReport) -> str | None:
     if not text or "`" in text or re.search(r"\bgit [a-z]", text):
         return None
     return text
+
+
+def has_conflict_markers(text: str) -> bool:
+    """True while a full ``<<<<<<<`` / ``=======`` / ``>>>>>>>`` triple is still present."""
+    return all(pattern.search(text) for pattern in (_START, _MIDDLE, _END))
+
+
+def unresolved_files(root: str, paths: list[str]) -> list[str]:
+    """Conflicted files that still hold markers.
+
+    A file that no longer exists was resolved by deleting it; an unreadable one is assumed
+    unresolved.
+    """
+    pending = []
+    for rel in paths:
+        target = Path(root) / rel
+        if not target.exists() and not target.is_symlink():
+            continue
+        try:
+            unresolved = has_conflict_markers(target.read_text(encoding="utf-8", errors="replace"))
+        except OSError:
+            unresolved = True
+        if unresolved:
+            pending.append(rel)
+    return pending
+
+
+def explain(reader: GitReader, state: RepoState, client: OllamaClient | None = None) -> str:
+    """Why the conflict happened — facts first, optional model recap, never a resolution."""
+    report = collect(reader, state)
+    if report is None:
+        return "Não há conflito em andamento neste repositório."
+    text = render(report)
+    summary = llm_summary(client, report) if client is not None else None
+    return f"{summary}\n\n{text}" if summary else text

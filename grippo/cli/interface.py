@@ -63,7 +63,7 @@ def run_turn(runtime: Runtime, message: str, read: Callable[[str], str]) -> Turn
     ):
         turn = runtime.assistant.handle(message)
     renderer.show_turn(turn)
-    if turn.kind == "confirm" and runtime.config.security.require_tty and not _interactive():
+    if turn.kind == "confirm" and runtime.config.security.require_tty and not is_interactive():
         renderer.show_error(
             "security.require_tty está ativo: a confirmação só vale vinda de um terminal "
             "interativo. Nada foi alterado."
@@ -80,7 +80,7 @@ def run_turn(runtime: Runtime, message: str, read: Callable[[str], str]) -> Turn
     return turn
 
 
-def _interactive() -> bool:
+def is_interactive() -> bool:
     return sys.stdin.isatty() and sys.stdout.isatty()
 
 

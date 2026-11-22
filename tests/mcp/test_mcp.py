@@ -9,7 +9,7 @@ from grippo.engine.executor import GitExecutor
 from grippo.engine.permissions import GitPermissionManager
 from grippo.git.lock import RepoLocks
 from grippo.git.repo import discover
-from grippo.mcp.proposals import PENDING, ProposalStore
+from grippo.mcp.proposals import ProposalStore, Status
 from grippo.mcp.server import McpServer
 from grippo.mcp.tools import TOOL_DEFS, GrippoTools
 from grippo.paths import get_paths
@@ -65,7 +65,7 @@ def test_mutation_becomes_proposal_and_changes_nothing(tools, repo):
     )
     assert git(repo, "status", "--short").stdout.startswith("??")  # still untracked
     (proposal,) = tools.store.list(only_pending=True)
-    assert proposal.status == PENDING and proposal.risk == "moderado"
+    assert proposal.status == Status.PENDING and proposal.risk == "moderado"
 
 
 def test_mutation_requires_user_request(tools, repo):

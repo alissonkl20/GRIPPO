@@ -236,17 +236,21 @@ def is_read_only(subcommand: str, args: Sequence[str]) -> bool:
 
 
 BACKUP_REF_PREFIX = "refs/grippo/backup/"
-_BACKUP_REF = re.compile(r"^refs/grippo/backup/[A-Za-z0-9_\-]{1,120}$")
+BACKUP_NAME_CHARS = r"[A-Za-z0-9_\-]"
+BACKUP_NAME_MAX = 120
+_BACKUP_REF = re.compile(
+    rf"^{re.escape(BACKUP_REF_PREFIX)}{BACKUP_NAME_CHARS}{{1,{BACKUP_NAME_MAX}}}$"
+)
+_SHA40 = re.compile(r"[0-9a-f]{40}")
+
+
+def is_full_sha(text: str) -> bool:
+    return bool(_SHA40.fullmatch(text))
 
 
 def _is_backup_ref_update(args: Sequence[str]) -> bool:
     """Exactly ``update-ref refs/grippo/backup/<safe-name> <40-hex sha>`` — nothing else."""
-    return (
-        len(args) == 3
-        and bool(_BACKUP_REF.fullmatch(args[1]))
-        and ".." not in args[1]
-        and bool(re.fullmatch(r"[0-9a-f]{40}", args[2]))
-    )
+    return len(args) == 3 and bool(_BACKUP_REF.fullmatch(args[1])) and is_full_sha(args[2])
 
 
 def validate_invocation(args: Sequence[str]) -> str:
@@ -358,6 +362,11 @@ def _reap_children() -> None:
     for proc in procs:
         if proc.poll() is None:
             _kill_group(proc, grace=0.5)
+
+
+def run_git_mutating(root: Path, args: Sequence[str], *, timeout: float) -> GitResult:
+    """Run an already-authorized mutating command (the caller is the executor's own flow)."""
+    return run_git(root, args, timeout=timeout, ticket=_issue_ticket(args))
 
 
 def git_binary() -> str:
