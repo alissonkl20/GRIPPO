@@ -1,20 +1,22 @@
 <div align="center">
 
+**🌐 English · [Português (Brasil)](README.pt-BR.md)**
+
 # 🐆 GRIPPO
 
-**Seu assistente Git local, em linguagem natural — com a LLM rodando na sua máquina.**
+**Your local Git assistant, in natural language — with the LLM running on your machine.**
 
-Diga o que quer fazer. O GRIPPO lê o estado real do repositório, mostra o impacto,
-pede sua confirmação e executa por uma camada determinística e auditada.
+Say what you want to do. GRIPPO reads the real state of the repository, shows the impact,
+asks for your confirmation and runs it through a deterministic, audited layer.
 
 ![Python](https://img.shields.io/badge/python-3.11%2B-blue)
 ![Git](https://img.shields.io/badge/git-%E2%89%A5%202.23-orange)
 ![LLM](https://img.shields.io/badge/LLM-100%25%20local%20(Ollama)-brightgreen)
-![Status](https://img.shields.io/badge/status-pr%C3%A9--1.0-yellow)
-![Platform](https://img.shields.io/badge/plataforma-Linux-lightgrey)
+![Status](https://img.shields.io/badge/status-pre--1.0-yellow)
+![Platform](https://img.shields.io/badge/platform-Linux-lightgrey)
 
-[Instalação](#instalação) · [Uso](#uso) · [Integração com IAs (MCP)](#integração-com-outras-ias-mcp) ·
-[Segurança](#segurança) · [Documentação](#documentação) · [Contribuir](CONTRIBUTING.md)
+[Install](#installation) · [Usage](#usage) · [AI integration (MCP)](#integration-with-other-ais-mcp) ·
+[Safety](#safety) · [Documentation](#documentation) · [Contributing](CONTRIBUTING.md)
 
 </div>
 
@@ -37,215 +39,222 @@ pede sua confirmação e executa por uma camada determinística e auditada.
 [c] confirmar  [n] cancelar  [d] detalhes  [e] editar mensagem:
 ```
 
-## Por que o GRIPPO?
+> The interface and the built-in phrase router are currently in **Brazilian Portuguese**
+> (the screen above reads: *"I want to commit the form changes"* → proposed operation,
+> risk MODERATE, files to stage, one unrelated file left out, confirm/cancel/details/edit).
+> English requests work through the local LLM; see [Known limitations](#known-limitations).
 
-Você já usa um agente de código (Claude Code, Cursor, Copilot…) para **implementar** a
-tarefa. Falta alguém para cuidar do **versionamento**: criar a branch certa, separar o que
-entra no commit, escrever uma mensagem decente, publicar sem estragar o histórico e te
-tirar de um conflito. É isso que o GRIPPO faz — e só isso.
+## Why GRIPPO?
 
-|  | Git puro | Agentes de código | **GRIPPO** |
+You already use a coding agent (Claude Code, Cursor, Copilot…) to **implement** the task.
+What is missing is someone to take care of **version control**: create the right branch,
+pick what goes into the commit, write a decent message, publish without wrecking history
+and get you out of a conflict. That is what GRIPPO does — and nothing else.
+
+|  | Plain Git | Coding agents | **GRIPPO** |
 |---|:-:|:-:|:-:|
-| Linguagem natural | ✗ | ✓ | ✓ |
-| Roda 100% local (sem enviar código para a nuvem) | ✓ | ✗ | ✓ |
-| Mostra impacto e como desfazer antes de agir | ✗ | varia | ✓ |
-| Confirmação vinculada ao estado do repositório | ✗ | ✗ | ✓ |
-| Auditoria de cada operação | ✗ | ✗ | ✓ |
-| Funciona sem LLM (roteador determinístico) | ✓ | ✗ | ✓ |
+| Natural language | ✗ | ✓ | ✓ |
+| 100% local (no code sent to the cloud) | ✓ | ✗ | ✓ |
+| Shows impact and how to undo before acting | ✗ | varies | ✓ |
+| Confirmation bound to the repository state | ✗ | ✗ | ✓ |
+| Audit trail of every operation | ✗ | ✗ | ✓ |
+| Works without an LLM (deterministic router) | ✓ | ✗ | ✓ |
 
-## O que ele faz
+## What it does
 
-- **Branches** — criar, trocar, renomear, excluir, listar (inclusive mescladas), definir upstream.
-- **Commits** — escolhe os arquivos que pertencem à entrega, classifica o tipo
-  (`feat`, `fix`, `docs`, `refactor`…) e propõe uma mensagem em
-  [Conventional Commits](https://www.conventionalcommits.org). Você pode editá-la.
-- **Sincronização** — fetch, pull, push (cria o upstream sozinho), tags, remotos.
-- **Integração** — merge, rebase, cherry-pick, com detecção de conflito.
-- **Conflitos** — *"como resolvo o conflito?"* explica **por que** deu conflito (quem mudou
-  o quê, em quais commits, os trechos que colidem). Ao pedir *"continue o merge"* ele confere
-  se ainda restam marcadores `<<<<<<<` e só então faz `add` + `--continue`. Também
-  oferece `abort` e `skip`. Ele explica; **você** escolhe o lado.
-- **Desfazer** — `revert`, `reset` (soft/mixed/hard), `restore`, stash, `reflog` — sempre
-  informando o comando de recuperação, com **backup automático** antes das destrutivas.
-- **Inspeção** — status, diff, log, show, comparar branches.
+- **Branches** — create, switch, rename, delete, list (including merged), set upstream.
+- **Commits** — picks the files that belong to the change, classifies the type
+  (`feat`, `fix`, `docs`, `refactor`…) and proposes a
+  [Conventional Commits](https://www.conventionalcommits.org) message. You can edit it.
+- **Sync** — fetch, pull, push (sets the upstream for you), tags, remotes.
+- **Integration** — merge, rebase, cherry-pick, with conflict detection.
+- **Conflicts** — *"how do I resolve the conflict?"* explains **why** it happened (who
+  changed what, in which commits, which hunks collide). On *"continue the merge"* it checks
+  that no `<<<<<<<` markers remain, then runs `add` + `--continue`. `abort` and `skip` are
+  available too. It explains; **you** choose the side.
+- **Undo** — `revert`, `reset` (soft/mixed/hard), `restore`, stash, `reflog` — always
+  showing the recovery command, with an **automatic backup** before destructive operations.
+- **Inspection** — status, diff, log, show, branch comparison.
 
-Ele **não** é um agente de código: não implementa funcionalidades, não corrige bugs e não
-faz code review.
+It is **not** a coding agent: it does not implement features, fix bugs or review code.
 
-## Instalação
+## Installation
 
 ```bash
 git clone https://github.com/alissonkl20/GRIPPO.git
 cd GRIPPO
-./install.sh            # sem sudo; use --add-to-path se ~/.local/bin não estiver no PATH
-grippo doctor           # diagnóstico: Git, Python, Ollama, GPU, PATH
-grippo model pull       # baixa o modelo padrão (qwen2.5:3b) no Ollama
+./install.sh            # no sudo; use --add-to-path if ~/.local/bin is not on your PATH
+grippo doctor           # diagnostics: Git, Python, Ollama, GPU, PATH
+grippo model pull       # downloads the default model (qwen2.5:3b) into Ollama
 ```
 
-**Requisitos:** Linux, Python ≥ 3.11 com `venv`, Git ≥ 2.23 e, para a LLM local,
-[Ollama](https://ollama.com) (~2 GB de VRAM ou RAM livres para o modelo padrão).
-Sem Ollama o GRIPPO continua funcionando com o roteador de frases conhecidas
-(`--no-llm`). Mais detalhes em [INSTALL.md](INSTALL.md).
+**Requirements:** Linux, Python ≥ 3.11 with `venv`, Git ≥ 2.23 and, for the local LLM,
+[Ollama](https://ollama.com) (~2 GB of free VRAM or RAM for the default model).
+Without Ollama GRIPPO still works through its router of known phrases (`--no-llm`).
+More in [INSTALL.md](INSTALL.md).
 
-## Uso
+## Usage
 
 ```bash
-cd ~/projetos/qualquer-repo     # funciona em qualquer subpasta ou worktree
-grippo                          # modo interativo
+cd ~/projects/any-repo          # works in any subdirectory or worktree
+grippo                          # interactive mode
 grippo ask "crie uma branch feature/login"
-grippo --repo ~/outro/repo status
+grippo --repo ~/other/repo status
 ```
 
-Se você estiver numa pasta que **contém** repositórios (e não dentro de um), o GRIPPO
-lista os que encontrou e diz qual comando usar.
+If you run it in a folder that **contains** repositories (rather than inside one), GRIPPO
+lists the ones it found and tells you which command to use.
 
-Exemplos de pedidos:
+Example requests (the router currently understands Portuguese phrases):
 
-| Você diz | O GRIPPO propõe |
+| You say | GRIPPO proposes |
 |---|---|
-| "crie uma branch feature/login" | `git switch -c feature/login` |
-| "volte para a main" | `git switch main` |
-| "faça commit das alterações" | `git add` (só o que pertence à entrega) + `git commit` |
-| "envie para o remoto" | `git push --set-upstream origin HEAD:refs/heads/<branch>` |
-| "atualize minha branch com a main" | pergunta: merge ou rebase? (recomenda um) |
-| "reverta o commit 1a2b3c4" | `git revert --no-edit 1a2b3c4` |
-| "desfaça o último commit mantendo as alterações" | `git reset --soft HEAD~1` (risco **alto** se já publicado) |
-| "continue o merge" | `git add` dos arquivos resolvidos + `git merge --continue` |
+| "crie uma branch feature/login" (create a branch) | `git switch -c feature/login` |
+| "volte para a main" (go back to main) | `git switch main` |
+| "faça commit das alterações" (commit my changes) | `git add` (only what belongs to the change) + `git commit` |
+| "envie para o remoto" (push) | `git push --set-upstream origin HEAD:refs/heads/<branch>` |
+| "atualize minha branch com a main" (update my branch) | asks: merge or rebase? (recommends one) |
+| "reverta o commit 1a2b3c4" (revert a commit) | `git revert --no-edit 1a2b3c4` |
+| "desfaça o último commit mantendo as alterações" (undo last commit, keep changes) | `git reset --soft HEAD~1` (risk **high** if already published) |
+| "continue o merge" | `git add` of the resolved files + `git merge --continue` |
 | "aborte o merge" | `git merge --abort` |
-| "como resolvo o conflito?" | explica por que deu conflito (não escolhe o lado) |
-| "liste as branches já mescladas" | `git branch --merged` |
+| "como resolvo o conflito?" (how do I resolve the conflict?) | explains why it conflicted (does not pick a side) |
+| "liste as branches já mescladas" (list merged branches) | `git branch --merged` |
 
-Comandos de manutenção:
+Maintenance commands:
 
 ```bash
-grippo doctor        # diagnóstico da instalação
-grippo bench         # RAM/VRAM/tempo/tokens por segundo
+grippo doctor        # installation diagnostics
+grippo bench         # RAM/VRAM/time/tokens per second
 grippo config set llm.model qwen2.5:3b
-grippo update        # atualização com validação e rollback
-grippo uninstall     # preserva configurações, modelos, logs e auditoria
+grippo update        # update with validation and rollback
+grippo uninstall     # keeps settings, models, logs and audit trail
 ```
 
-## Fluxo de trabalho com Claude Code
+## Workflow with Claude Code
 
-O GRIPPO roda **ao lado** do seu agente de código, em outro terminal aberto no mesmo
-repositório — ou **integrado**, via MCP (próxima seção).
+GRIPPO runs **next to** your coding agent, in another terminal opened on the same
+repository — or **integrated** through MCP (next section).
 
 ```text
  Terminal A — GRIPPO                    Terminal B — Claude Code
  ───────────────────────                ─────────────────────────
- ❯ crie a branch feat/export-csv
-   ✔ branch criada e ativa
-                                        > implemente a exportação CSV
-                                          … edita arquivos, roda testes …
- ❯ faça commit
-   ◆ analisa o diff → feat(export): add CSV export
-   [c] confirmar
- ❯ envie para o remoto
-   ✔ remoto atualizado
+ ❯ create branch feat/export-csv
+   ✔ branch created and active
+                                        > implement the CSV export
+                                          … edits files, runs tests …
+ ❯ commit
+   ◆ analyzes the diff → feat(export): add CSV export
+   [c] confirm
+ ❯ push
+   ✔ remote updated
 ```
 
-Passo a passo completo em [docs/GUIA.md](docs/GUIA.md).
+Full step-by-step guide in [docs/GUIA.md](docs/GUIA.md) (Portuguese).
 
-## Integração com outras IAs (MCP)
+## Integration with other AIs (MCP)
 
-`grippo mcp` transforma o GRIPPO em um servidor [MCP](https://modelcontextprotocol.io):
-Claude Code, Cursor, Claude Desktop e afins pedem commits, branches e push ao GRIPPO,
-**sem poder executá-los sozinhos**.
+`grippo mcp` turns GRIPPO into an [MCP](https://modelcontextprotocol.io) server: Claude
+Code, Cursor, Claude Desktop and others ask GRIPPO for commits, branches and pushes
+**without being able to execute them on their own**.
 
 ```bash
-claude mcp add grippo -- grippo --repo ~/projetos/meu-repo mcp   # Claude Code
-grippo mcp --print-config                                        # outros clientes (JSON)
+claude mcp add grippo -- grippo --repo ~/projects/my-repo mcp   # Claude Code
+grippo mcp --print-config                                       # other clients (JSON)
 ```
 
 ```text
-IA ──► grippo_propose ──► PROPOSTA p-1a2b3c4d (nada executado)
-você ► grippo approve p-1a2b3c4d ► vê o impacto ► confirma ► executa
+AI ──► grippo_propose ──► PROPOSAL p-1a2b3c4d (nothing executed)
+you ─► grippo approve p-1a2b3c4d ─► see the impact ─► confirm ─► executes
 ```
 
-- A IA **consulta e propõe**; **só você aprova**, num terminal interativo.
-- Alvos destrutivos precisam constar no seu pedido: a IA não "inventa" a branch a excluir.
-- No-ops, branches protegidas e operações inválidas são recusados antes de virarem proposta.
+- The AI **reads and proposes**; **only you approve**, in an interactive terminal.
+- Destructive targets must appear in your request: the AI cannot "invent" the branch to delete.
+- No-ops, protected branches and invalid operations are refused before they become proposals.
 
-Detalhes e limites em [docs/MCP.md](docs/MCP.md).
+Details and limits in [docs/MCP.md](docs/MCP.md).
 
-## Segurança
+## Safety
 
-1. **O modelo interpreta; o Git é a verdade; o código executa.** A LLM só propõe intenções
-   estruturadas (`{"op": "revert", "args": {...}}`) — nunca comandos.
-2. **Nada muda sem você.** Toda operação que altera o repositório mostra repositório,
-   branch, HEAD, arquivos, commits, consequências e como recuperar. Risco **alto**
-   (`reset --hard`, `clean`, force push…) exige digitar `confirmar`.
-3. **A autorização vale para o que você viu.** É de uso único, expira e fica vinculada à
-   operação, aos argumentos e ao estado do repositório: se algo mudar, ele pergunta de novo.
-4. **Sem atalhos para o shell.** Sem `shell=True`, subcomandos em allowlist, flags
-   perigosas bloqueadas.
-5. **Resultado verificado.** Sucesso só é informado depois de conferir o estado real.
-6. **Nada se perde.** Antes de `reset`, `rebase`, exclusões, force push, `clean` e `restore`,
-   o estado (inclusive alterações não commitadas) é salvo em `refs/grippo/backup/…`.
-7. **Sem alucinação.** Alvos de operações destrutivas precisam estar no seu pedido; pedidos
-   vagos como *"arruma aí"* nunca viram `reset --hard`. No-ops são recusados.
+1. **The model interprets; Git is the truth; code executes.** The LLM only proposes
+   structured intents (`{"op": "revert", "args": {...}}`) — never commands.
+2. **Nothing changes without you.** Every operation that modifies the repository shows
+   repository, branch, HEAD, files, commits, consequences and how to recover. **High** risk
+   (`reset --hard`, `clean`, force push…) requires typing `confirmar`.
+3. **Authorization covers what you saw.** It is single-use, expires, and is bound to the
+   operation, its arguments and the repository state: if anything changes, it asks again.
+4. **No shell shortcuts.** No `shell=True`, allow-listed subcommands, dangerous flags blocked.
+5. **Verified result.** Success is reported only after checking the real state.
+6. **Nothing gets lost.** Before `reset`, `rebase`, deletions, force push and `restore`,
+   the state (including uncommitted tracked changes) is saved under `refs/grippo/backup/…`.
+   Untracked files removed by `clean` are *not* backed up — `clean` always lists exactly what it deletes.
+7. **No hallucinated targets.** Targets of destructive operations must be in your request;
+   vague requests like *"fix it up"* never turn into `reset --hard`. No-ops are refused.
 
-Detalhes em [docs/PERMISSIONS.md](docs/PERMISSIONS.md) e [SECURITY.md](SECURITY.md).
+Details in [docs/PERMISSIONS.md](docs/PERMISSIONS.md) and [SECURITY.md](SECURITY.md).
 
-## Como funciona
+## How it works
 
 ```text
-pedido ─► roteador determinístico ─┐
-                                   ├─► plano de operações ─► validação ─► confirmação
-pedido ─► LLM local (Ollama) ──────┘                                          │
-                                                                              ▼
-                                   estado real ◄── verificação ◄── executor (git, sem shell)
+request ─► deterministic router ─┐
+                                 ├─► operation plan ─► validation ─► confirmation
+request ─► local LLM (Ollama) ───┘                                        │
+                                                                          ▼
+                                 real state ◄── verification ◄── executor (git, no shell)
 ```
 
-Skills ([docs/SKILLS.md](docs/SKILLS.md)) descrevem fluxos como *semantic-commit*, *push* e
-*stash*, ensinando o modelo local a decidir o tipo da entrega e a mensagem do commit.
-Arquitetura completa em [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
+Skills ([docs/SKILLS.md](docs/SKILLS.md)) describe flows such as *semantic-commit*, *push*
+and *stash*, teaching the local model how to decide the kind of change and the commit
+message. Full architecture in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
-## Documentação
+## Documentation
 
-| Documento | Conteúdo |
+The guides below are written in Portuguese.
+
+| Document | Contents |
 |---|---|
-| [INSTALL.md](INSTALL.md) · [UPDATING.md](UPDATING.md) · [UNINSTALL.md](UNINSTALL.md) | instalação, atualização, remoção |
-| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | módulos, fluxo de execução, decisões |
-| [docs/GUIA.md](docs/GUIA.md) | **passo a passo** de uso: da branch ao push, conflitos e desfazer |
-| [docs/MCP.md](docs/MCP.md) | usar o GRIPPO a partir de Claude Code, Cursor e outras IAs |
-| [docs/PERMISSIONS.md](docs/PERMISSIONS.md) | níveis de risco, autorização, guardas, backups, auditoria |
-| [docs/LLM.md](docs/LLM.md) | backend local, modelo, memória, medições e limitações |
-| [docs/CONFIGURATION.md](docs/CONFIGURATION.md) | `config.toml` e variáveis `GRIPPO_*` |
-| [docs/TESTING.md](docs/TESTING.md) | camadas de teste |
-| [docs/RELEASING.md](docs/RELEASING.md) | versionamento e publicação |
-| [docs/GIT.md](docs/GIT.md) · [docs/SKILLS.md](docs/SKILLS.md) | léxico Git e skills |
-| [CONTRIBUTING.md](CONTRIBUTING.md) · [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md) · [CHANGELOG.md](CHANGELOG.md) | contribuição e histórico |
+| [INSTALL.md](INSTALL.md) · [UPDATING.md](UPDATING.md) · [UNINSTALL.md](UNINSTALL.md) | install, update, remove |
+| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | modules, execution flow, decisions |
+| [docs/GUIA.md](docs/GUIA.md) | **step-by-step** usage: from branch to push, conflicts and undo |
+| [docs/MCP.md](docs/MCP.md) | using GRIPPO from Claude Code, Cursor and other AIs |
+| [docs/PERMISSIONS.md](docs/PERMISSIONS.md) | risk levels, authorization, guards, backups, audit |
+| [docs/LLM.md](docs/LLM.md) | local backend, model, memory, measurements and limitations |
+| [docs/CONFIGURATION.md](docs/CONFIGURATION.md) | `config.toml` and `GRIPPO_*` variables |
+| [docs/TESTING.md](docs/TESTING.md) | test layers |
+| [docs/RELEASING.md](docs/RELEASING.md) | versioning and publishing |
+| [docs/GIT.md](docs/GIT.md) · [docs/SKILLS.md](docs/SKILLS.md) | Git glossary and skills |
+| [CONTRIBUTING.md](CONTRIBUTING.md) · [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md) · [CHANGELOG.md](CHANGELOG.md) | contributing and history |
 
-## Limitações conhecidas
+## Known limitations
 
-- Modelos pequenos (3B) erram interpretações ambíguas; por isso o roteador determinístico
-  tem prioridade e **toda** proposta passa pela confirmação. Medições em [docs/LLM.md](docs/LLM.md).
-- Testado em Ubuntu 26.04 / Python 3.14 / Git 2.53 / Ollama 0.40. Outras distribuições,
-  macOS e Windows ainda não foram testados.
-- Pedidos em português são o foco; outros idiomas dependem da LLM.
+- Small models (3B) misread ambiguous requests; that is why the deterministic router has
+  priority and **every** proposal goes through confirmation. Measurements in [docs/LLM.md](docs/LLM.md).
+- Tested on Ubuntu 26.04 / Python 3.14 / Git 2.53 / Ollama 0.40. Other distributions, macOS
+  and Windows have not been tested yet.
+- Portuguese requests are the focus; the built-in router and the UI are in Portuguese, and
+  other languages depend on the LLM.
 
 ## Roadmap
 
-- [x] Servidor MCP para Claude Code, Cursor e outras IAs
-- [x] Explicação de conflitos (por que ocorreram)
-- [ ] Hooks do Claude Code (sugerir commit ao fim de uma tarefa)
-- [ ] Interface TUI com painel de estado em tempo real
-- [ ] Suporte a macOS
-- [ ] Publicação no PyPI
+- [x] MCP server for Claude Code, Cursor and other AIs
+- [x] Conflict explanation (why it happened)
+- [ ] English UI and phrase router
+- [ ] Claude Code hooks (suggest a commit when a task ends)
+- [ ] TUI with a live status panel
+- [ ] macOS support
+- [ ] PyPI release
 
-## Contribuindo
+## Contributing
 
-Contribuições são bem-vindas! Leia [CONTRIBUTING.md](CONTRIBUTING.md) e rode a suíte antes
-de abrir um PR:
+Contributions are welcome! Read [CONTRIBUTING.md](CONTRIBUTING.md) and run the suite before
+opening a PR:
 
 ```bash
 python -m venv .venv && .venv/bin/pip install -e ".[dev]"
-.venv/bin/pytest            # ~400 testes, sem precisar de Ollama
+.venv/bin/pytest            # ~470 tests, no Ollama needed
 ```
 
-## Licença
+## License
 
-**A definir** — veja [LICENSE](LICENSE). Até que o mantenedor escolha uma licença open
-source (MIT, Apache-2.0, GPL-3.0…), o código não deve ser considerado livre para
-redistribuição.
+**To be defined** — see [LICENSE](LICENSE). Until the maintainer picks an open-source
+license (MIT, Apache-2.0, GPL-3.0…), the code should not be considered free to redistribute.
