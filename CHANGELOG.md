@@ -5,6 +5,8 @@ versionamento: [Semantic Versioning](https://semver.org/lang/pt-BR/).
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-11-22
+
 ### Adicionado
 - **Integração com outras IAs (MCP):** `grippo mcp` expõe o GRIPPO a Claude Code, Cursor,
   Claude Desktop e qualquer cliente MCP. A IA consulta e **propõe**; só você aprova, com
@@ -24,6 +26,7 @@ versionamento: [Semantic Versioning](https://semver.org/lang/pt-BR/).
 - Guias: `docs/GUIA.md` (passo a passo) e `docs/MCP.md`.
 
 ### Alterado
+- README em inglês (`README.md`) com a versão em português em `README.pt-BR.md`.
 - Interface colorida: paleta única (âmbar), prompt com a branch atual
   (`grippo develop* ❯`), painéis de boas-vindas/estado/ajuda, etiquetas de risco,
   teclas de confirmação coloridas e destaque de diff/log. `NO_COLOR` respeitado.
@@ -42,7 +45,7 @@ versionamento: [Semantic Versioning](https://semver.org/lang/pt-BR/).
 - Código sem uso (`GitReader.tags/upstream_of/config_get`, `OllamaClient.warm_up`,
   `GitPermissionManager.revoke_all`).
 
-## [0.2.0] - não publicado (aguardando tag)
+### Reestruturação inicial
 
 Reestruturação completa para ferramenta CLI instalável, com execução Git segura.
 
