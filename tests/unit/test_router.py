@@ -86,7 +86,7 @@ def test_unknown_returns_none():
 
 
 def test_conflict_markers_detected(tmp_path):
-    from grippo.agent.router import _files_with_conflict_markers
+    from grippo.git.conflicts import unresolved_files as _files_with_conflict_markers
 
     (tmp_path / "bad.txt").write_text("a\n<<<<<<< HEAD\nx\n=======\ny\n>>>>>>> main\n")
     (tmp_path / "doc.md").write_text("exemplo:\n<<<<<<< aqui\nsó um marcador solto\n")

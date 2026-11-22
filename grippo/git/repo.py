@@ -30,6 +30,15 @@ _SKIP_DIRS = frozenset(
 )
 
 
+def _subdirs(directory: Path) -> list[Path]:
+    """Visible, non-vendored child directories (empty when unreadable)."""
+    try:
+        children = sorted(p for p in directory.iterdir() if p.is_dir())
+    except OSError:
+        return []
+    return [c for c in children if c.name not in _SKIP_DIRS and not c.name.startswith(".")]
+
+
 def find_nearby_repositories(start: Path, max_depth: int = 2, limit: int = 8) -> list[Path]:
     """Repositories in subdirectories (bounded, cheap scan) to suggest to the user."""
     found: list[Path] = []
@@ -37,19 +46,10 @@ def find_nearby_repositories(start: Path, max_depth: int = 2, limit: int = 8) ->
     for _ in range(max_depth):
         next_level: list[Path] = []
         for directory in frontier:
-            try:
-                children = sorted(p for p in directory.iterdir() if p.is_dir())
-            except OSError:
-                continue
-            for child in children:
-                if child.name in _SKIP_DIRS or child.name.startswith("."):
-                    continue
-                if (child / ".git").exists():
-                    found.append(child)
-                    if len(found) >= limit:
-                        return found
-                else:
-                    next_level.append(child)
+            for child in _subdirs(directory):
+                (found if (child / ".git").exists() else next_level).append(child)
+            if len(found) >= limit:
+                return found[:limit]
         frontier = next_level[:200]
     return found
 

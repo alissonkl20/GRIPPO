@@ -8,14 +8,14 @@ words explicitly ask for them, and they still go through confirmation.
 
 from __future__ import annotations
 
-import os
 import re
-import unicodedata
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any
 
+from grippo.git.conflicts import unresolved_files
 from grippo.git.state import RepoState
+from grippo.text import fold
 
 StepSpec = tuple[str, dict[str, Any]]
 
@@ -32,12 +32,6 @@ class Interpretation:
     source: str = "router"
     fast: bool = False  # safe to skip the LLM
     notes: list[str] = field(default_factory=list)
-
-
-def fold(text: str) -> str:
-    """Lowercase without accents (so 'alterações' matches 'alteracoes')."""
-    decomposed = unicodedata.normalize("NFKD", text.lower())
-    return "".join(ch for ch in decomposed if not unicodedata.combining(ch))
 
 
 def _clean_name(raw: str) -> str:
@@ -144,47 +138,19 @@ def _rule_sequencer(t: str, o: str, s: RepoState | None) -> Interpretation | Non
     if not kind:
         return None
     op = f"{kind.replace('-', '_')}_{action}"
-    steps: list[tuple[str, dict[str, Any]]] = [(op, {})]
-    if action == "continue" and s is not None and s.conflicted:
-        unresolved = _files_with_conflict_markers(s.root, s.conflicted)
-        if unresolved:
-            return Interpretation(
-                "clarify",
-                question="Ainda há marcadores de conflito (<<<<<<<, =======, >>>>>>>) em: "
-                + ", ".join(unresolved)
-                + ". Resolva-os no editor (ou peça ao Claude Code) e peça de novo.",
-            )
+    staging = action == "continue" and s is not None and bool(s.conflicted)
+    unresolved = unresolved_files(s.root, s.conflicted) if staging and s else []
+    if unresolved:
+        return Interpretation(
+            "clarify",
+            question="Ainda há marcadores de conflito (<<<<<<<, =======, >>>>>>>) em: "
+            + ", ".join(unresolved)
+            + ". Resolva-os no editor (ou peça ao Claude Code) e peça de novo.",
+        )
+    steps: list[StepSpec] = [(op, {})]
+    if staging and s:  # resolved files must be staged before --continue
         steps.insert(0, ("add", {"paths": list(s.conflicted)}))
     return Interpretation("execute", steps, reply=f"{kind} {action}.")
-
-
-def _files_with_conflict_markers(root: str, paths: list[str]) -> list[str]:
-    """Conflicted files that still hold unresolved markers.
-
-    A file that no longer exists was resolved by deleting it; an unreadable one is assumed
-    unresolved.
-    """
-    pending = []
-    for rel in paths:
-        target = os.path.join(root, rel)
-        if not os.path.lexists(target):
-            continue
-        try:
-            with open(target, encoding="utf-8", errors="replace") as handle:
-                text = handle.read()
-        except OSError:
-            pending.append(rel)
-            continue
-        if _has_conflict_markers(text):
-            pending.append(rel)
-    return pending
-
-
-def _has_conflict_markers(text: str) -> bool:
-    return all(
-        re.search(pattern, text, re.MULTILINE)
-        for pattern in (r"^<{7}( |$)", r"^={7}$", r"^>{7}( |$)")
-    )
 
 
 def _rule_commit(t: str, o: str, s: RepoState | None) -> Interpretation | None:

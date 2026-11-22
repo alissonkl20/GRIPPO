@@ -8,19 +8,19 @@ user's terminal (``grippo approve``), outside the AI's reach.
 from __future__ import annotations
 
 import json
+from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any
 
-from grippo.engine.guard import grounding_problems
-from grippo.engine.operations import CATALOG
-from grippo.engine.plan import PlanResult, PreparedPlan
+from grippo.engine.guard import grounding_error
+from grippo.engine.operations import CATALOG, Param
+from grippo.engine.plan import Plan, PreparedPlan, format_result
 from grippo.errors import GrippoError
 from grippo.git import conflicts
 from grippo.mcp.proposals import ProposalStore
 from grippo.runtime import Runtime
 
 MAX_STEPS = 5
-MAX_OUTPUT_CHARS = 20_000
 
 
 @dataclass(frozen=True)
@@ -91,6 +91,8 @@ TOOL_DEFS: list[dict[str, Any]] = [
 class GrippoTools:
     def __init__(self, runtime: Runtime, store: ProposalStore, client: str = "") -> None:
         self.runtime = runtime
+        self.executor = runtime.executor
+        self.repo = str(runtime.repo.root)
         self.store = store
         self.client = client
         self._handlers = {
@@ -112,75 +114,54 @@ class GrippoTools:
 
     # ------------------------------------------------------------------ read tools
     def _repo_state(self, _: dict[str, Any]) -> ToolReply:
-        state = self.runtime.executor.state()
+        state = self.executor.state()
         return ToolReply(f"repositório: {state.root}\n{state.summary()}")
 
     @staticmethod
     def _list_operations(_: dict[str, Any]) -> ToolReply:
-        rows = []
-        for op in CATALOG.values():
-            params = ", ".join(
-                f"{name}{'*' if p.required else ''}:{p.kind}" for name, p in op.params.items()
-            )
-            kind = "mutating" if op.mutating else "read-only"
-            rows.append(f"{op.name} [{kind}, base risk {op.risk.label}] ({params}) — {op.summary}")
+        rows = [
+            f"{op.name} [{'mutating' if op.mutating else 'read-only'}, base risk "
+            f"{op.risk.label}] ({_signature(op.params)}) — {op.summary}"
+            for op in CATALOG.values()
+        ]
         return ToolReply("(* = required)\n" + "\n".join(rows))
 
     def _explain_conflict(self, _: dict[str, Any]) -> ToolReply:
-        report = conflicts.collect(self.runtime.executor.reader, self.runtime.executor.state())
-        if report is None:
-            return ToolReply("não há conflito em andamento")
-        return ToolReply(conflicts.render(report))
+        return ToolReply(conflicts.explain(self.executor.reader, self.executor.state()))
 
     # ------------------------------------------------------------------ propose
     def _propose(self, arguments: dict[str, Any]) -> ToolReply:
-        steps = arguments.get("steps")
-        if not isinstance(steps, list) or not 1 <= len(steps) <= MAX_STEPS:
-            return ToolReply(f"steps deve ser uma lista de 1 a {MAX_STEPS} itens", True)
-        specs: list[tuple[str, dict[str, Any]]] = []
-        for item in steps:
-            if not isinstance(item, dict) or not isinstance(item.get("op"), str):
-                return ToolReply("cada step precisa de 'op' (texto) e 'args' (objeto)", True)
-            args = item.get("args") or {}
-            if not isinstance(args, dict):
-                return ToolReply("'args' deve ser um objeto", True)
-            specs.append((item["op"], args))
+        specs = _parse_steps(arguments.get("steps"))
+        if isinstance(specs, str):
+            return ToolReply(specs, True)
         user_request = str(arguments.get("user_request") or "").strip()
         reason = str(arguments.get("reason") or "").strip()[:500]
 
-        executor = self.runtime.executor
-        plan = executor.build_plan(specs, reason)
-        prepared = executor.prepare(plan)
+        plan = self.executor.build_plan(specs, reason)
+        prepared = self.executor.prepare(plan)
         if not prepared.allowed:
             return ToolReply(prepared.denial_reason or "não permitido", True)
         if prepared.errors:
             return ToolReply("não pode ser executado: " + "; ".join(prepared.errors), True)
         if not prepared.mutating:
             return self._run(prepared)
+        refusal = self._refusal(plan, user_request)
+        return ToolReply(refusal, True) if refusal else self._store(prepared, user_request, reason)
+
+    @staticmethod
+    def _refusal(plan: Plan, user_request: str) -> str | None:
         if not user_request:
-            return ToolReply(
-                "user_request é obrigatório para alterações: cite o pedido do usuário", True
-            )
-        problems = grounding_problems(plan, user_request)
-        if problems:
-            return ToolReply(
-                "proposta recusada pela guarda anti-alucinação: " + "; ".join(problems), True
-            )
-        return self._store(prepared, specs, user_request, reason)
+            return "user_request é obrigatório para alterações: cite o pedido do usuário"
+        problems = grounding_error(plan, user_request)
+        return f"proposta recusada pela guarda anti-alucinação: {problems}" if problems else None
 
     def _run(self, prepared: PreparedPlan) -> ToolReply:
-        result = self.runtime.executor.execute(prepared)
-        return ToolReply(_format_result(result), not result.ok)
+        result = self.executor.execute(prepared)
+        return ToolReply(format_result(result), not result.ok)
 
-    def _store(
-        self,
-        prepared: PreparedPlan,
-        specs: list[tuple[str, dict[str, Any]]],
-        user_request: str,
-        reason: str,
-    ) -> ToolReply:
+    def _store(self, prepared: PreparedPlan, user_request: str, reason: str) -> ToolReply:
         proposal = self.store.create(
-            repo=str(self.runtime.repo.root),
+            repo=self.repo,
             steps=[{"op": step.op, "args": step.args} for step in prepared.plan.steps],
             user_request=user_request,
             reason=reason,
@@ -189,56 +170,66 @@ class GrippoTools:
             ttl_sec=self.runtime.config.security.proposal_ttl_min * 60,
             client=self.client,
         )
-        lines = [
-            f"PROPOSTA {proposal.id} criada — NADA foi executado. Risco: {prepared.risk.label}.",
-            "Peça ao usuário para aprovar no terminal dele:",
-            f"    grippo approve {proposal.id}",
-            "",
-        ]
-        for preview in prepared.previews:
-            lines.append(f"• {preview.step.op} {json.dumps(preview.step.args, ensure_ascii=False)}")
-            lines += [f"    - {line}" for line in preview.impact.consequences]
-            lines += [f"    ⚠ {line}" for line in preview.impact.warnings]
-            if preview.impact.recovery:
-                lines.append(f"    recuperação: {preview.impact.recovery}")
-        lines += [
-            "",
-            "Depois da aprovação, consulte o resultado com grippo_proposal_status.",
-            "Não repita a proposta nem tente executar de outra forma.",
-        ]
-        return ToolReply("\n".join(lines))
+        return ToolReply(_render_proposal(proposal.id, prepared))
 
     # ------------------------------------------------------------------ status
     def _proposal_status(self, arguments: dict[str, Any]) -> ToolReply:
         proposal_id = str(arguments.get("id") or "").strip()
         if not proposal_id:
-            pending = self.store.list(repo=str(self.runtime.repo.root), only_pending=True)
-            if not pending:
-                return ToolReply("nenhuma proposta pendente")
-            return ToolReply(
-                "\n".join(
-                    f"{p.id} [{p.risk}] {', '.join(s['op'] for s in p.steps)}" for p in pending
-                )
-            )
+            return ToolReply(self._pending_summary())
         proposal = self.store.get(proposal_id)
-        if proposal is None or proposal.repo != str(self.runtime.repo.root):
+        if proposal is None or proposal.repo != self.repo:
             return ToolReply("proposta não encontrada neste repositório", True)
-        text = f"{proposal.id}: {proposal.status}"
-        if proposal.result:
-            text += f"\n{proposal.result}"
-        return ToolReply(text)
+        return ToolReply(
+            f"{proposal.id}: {proposal.status}"
+            + (f"\n{proposal.result}" if proposal.result else "")
+        )
+
+    def _pending_summary(self) -> str:
+        pending = self.store.list(repo=self.repo, only_pending=True)
+        return (
+            "\n".join(
+                f"{p.id} [{p.risk}] {', '.join(step['op'] for step in p.steps)}" for p in pending
+            )
+            or "nenhuma proposta pendente"
+        )
 
 
-def _format_result(result: PlanResult) -> str:
-    parts = []
-    for step in result.results:
-        header = f"$ {step.command}" if step.command else f"({step.step.op}: {step.status.value})"
-        body = (step.stdout or step.stderr).strip()
-        parts.append(f"{header}\n{body}" if body else header)
-        if step.hint:
-            parts.append(f"dica: {step.hint}")
-    parts.append(result.message)
-    text = "\n".join(parts)
-    if len(text) > MAX_OUTPUT_CHARS:
-        text = text[:MAX_OUTPUT_CHARS] + "\n… (saída truncada)"
-    return text
+def _signature(params: Mapping[str, Param]) -> str:
+    return ", ".join(f"{name}{'*' if p.required else ''}:{p.kind}" for name, p in params.items())
+
+
+def _parse_steps(steps: Any) -> list[tuple[str, dict[str, Any]]] | str:
+    """Validated ``(op, args)`` pairs, or an error message for the client."""
+    if not isinstance(steps, list) or not 1 <= len(steps) <= MAX_STEPS:
+        return f"steps deve ser uma lista de 1 a {MAX_STEPS} itens"
+    specs = []
+    for item in steps:
+        if not isinstance(item, dict) or not isinstance(item.get("op"), str):
+            return "cada step precisa de 'op' (texto) e 'args' (objeto)"
+        args = item.get("args") or {}
+        if not isinstance(args, dict):
+            return "'args' deve ser um objeto"
+        specs.append((item["op"], args))
+    return specs
+
+
+def _render_proposal(proposal_id: str, prepared: PreparedPlan) -> str:
+    lines = [
+        f"PROPOSTA {proposal_id} criada — NADA foi executado. Risco: {prepared.risk.label}.",
+        "Peça ao usuário para aprovar no terminal dele:",
+        f"    grippo approve {proposal_id}",
+        "",
+    ]
+    for preview in prepared.previews:
+        lines.append(f"• {preview.step.op} {json.dumps(preview.step.args, ensure_ascii=False)}")
+        lines += [f"    - {line}" for line in preview.impact.consequences]
+        lines += [f"    ⚠ {line}" for line in preview.impact.warnings]
+        if preview.impact.recovery:
+            lines.append(f"    recuperação: {preview.impact.recovery}")
+    lines += [
+        "",
+        "Depois da aprovação, consulte o resultado com grippo_proposal_status.",
+        "Não repita a proposta nem tente executar de outra forma.",
+    ]
+    return "\n".join(lines)

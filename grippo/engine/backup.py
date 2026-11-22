@@ -21,7 +21,12 @@ from pathlib import Path
 
 from grippo.engine.plan import Plan, Step
 from grippo.errors import GrippoError
-from grippo.git.runner import BACKUP_REF_PREFIX, _issue_ticket, run_git
+from grippo.git.runner import (
+    BACKUP_REF_PREFIX,
+    is_full_sha,
+    run_git,
+    run_git_mutating,
+)
 from grippo.git.state import RepoState
 
 BACKUP_OPS = frozenset(
@@ -54,7 +59,10 @@ class Backup:
         return f"git reset --hard {self.ref}   (ou: git branch recuperada {self.ref})"
 
 
+# stamp(15) + branch + op + id(4) + pinned-object + separators stays far below the 120-char
+# limit the runner enforces on backup ref names.
 MAX_SLUG = 24
+_FORCE_ONLY_OPS = frozenset({"push"})
 
 
 def _slug(text: str) -> str:
@@ -62,44 +70,59 @@ def _slug(text: str) -> str:
     return cleaned or "x"
 
 
-def needs_backup(plan: Plan, state: RepoState) -> bool:
-    for step in plan.steps:
-        if step.op == "push" and not (step.args.get("force") or step.args.get("force_with_lease")):
-            continue
-        if step.op in BACKUP_OPS:
-            return True
-    return False
+def _is_destructive(step: Step) -> bool:
+    forced = step.args.get("force") or step.args.get("force_with_lease")
+    return step.op in BACKUP_OPS and (step.op not in _FORCE_ONLY_OPS or bool(forced))
+
+
+def needs_backup(plan: Plan) -> bool:
+    return any(_is_destructive(step) for step in plan.steps)
 
 
 def _update_ref(root: Path, ref: str, sha: str, timeout: float) -> None:
-    argv = ["update-ref", ref, sha]
-    result = run_git(root, argv, timeout=timeout, ticket=_issue_ticket(argv))
+    result = run_git_mutating(root, ["update-ref", ref, sha], timeout=timeout)
     if not result.ok:
         raise BackupError(f"não foi possível criar o backup {ref}: {result.error_text()}")
 
 
-def _pinned_object(root: Path, step: Step, timeout: float) -> tuple[str, str] | None:
-    """The object a deleting step would orphan: (description, sha), if it can be found."""
+def _pin_target(step: Step) -> tuple[str, str] | None:
+    """(rev, label) of the object a deleting step would orphan, if the step deletes one."""
     if step.op == "branch_delete":
-        rev, label = f"refs/heads/{step.args['name']}", f"ponta de {step.args['name']}"
-    elif step.op in {"tag_delete", "tag_delete_remote"}:
+        return f"refs/heads/{step.args['name']}", f"ponta de {step.args['name']}"
+    if step.op in {"tag_delete", "tag_delete_remote"}:
         name = step.args.get("name") or step.args.get("tag")
-        rev, label = f"refs/tags/{name}", f"tag {name}"
-    elif step.op == "stash_drop":
+        return f"refs/tags/{name}", f"tag {name}"
+    if step.op == "stash_drop":
         index = step.args.get("index", 0)
-        rev, label = f"stash@{{{index}}}", f"stash {index}"
-    else:
+        return f"stash@{{{index}}}", f"stash {index}"
+    return None
+
+
+def _pinned_object(root: Path, step: Step, timeout: float) -> tuple[str, str] | None:
+    """``(description, sha)`` of the object ``step`` would orphan, if it can be found."""
+    target = _pin_target(step)
+    if target is None:
         return None
+    rev, label = target
     found = run_git(root, ["rev-parse", "--verify", "--quiet", rev], timeout=timeout)
     sha = found.stdout.strip()
-    return (label, sha) if found.ok and re.fullmatch(r"[0-9a-f]{40}", sha) else None
+    return (label, sha) if found.ok and is_full_sha(sha) else None
+
+
+def _snapshot_worktree(root: Path, timeout: float) -> str | None:
+    """Commit holding the uncommitted tracked changes (working tree left untouched)."""
+    snap = run_git_mutating(root, ["stash", "create"], timeout=timeout)
+    if not snap.ok:
+        raise BackupError(f"não foi possível salvar as alterações locais: {snap.error_text()}")
+    sha = snap.stdout.strip()
+    return sha if is_full_sha(sha) else None
 
 
 def create_backups(
     root: Path, plan: Plan, state: RepoState, *, timeout: float = 30.0
 ) -> list[Backup]:
     """Create the backups the plan calls for. Raises :class:`BackupError` on any failure."""
-    if not needs_backup(plan, state) or not state.head:
+    if not needs_backup(plan) or not state.head:
         return []
     stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%S")
     unique = secrets.token_hex(2)  # two backups in the same second must not overwrite each other
@@ -112,19 +135,11 @@ def create_backups(
         backups.append(Backup(ref, sha, what))
 
     add("", state.head, f"HEAD de {state.branch or 'HEAD destacado'}")
-    for step in plan.steps:
-        pinned = _pinned_object(root, step, timeout)
-        if pinned:
-            label, sha = pinned
-            add(f"-{_slug(label)}", sha, label)
-    if state.staged or state.unstaged:
-        argv = ["stash", "create"]
-        snap = run_git(root, argv, timeout=timeout, ticket=_issue_ticket(argv))
-        sha = snap.stdout.strip()
-        if snap.ok and re.fullmatch(r"[0-9a-f]{40}", sha):
-            add("-wip", sha, "alterações não commitadas (tracked)")
-        elif not snap.ok:
-            raise BackupError(f"não foi possível salvar as alterações locais: {snap.error_text()}")
+    for pinned in filter(None, (_pinned_object(root, step, timeout) for step in plan.steps)):
+        label, sha = pinned
+        add(f"-{_slug(label)}", sha, label)
+    if (state.staged or state.unstaged) and (wip := _snapshot_worktree(root, timeout)):
+        add("-wip", wip, "alterações não commitadas (tracked)")
     return backups
 
 

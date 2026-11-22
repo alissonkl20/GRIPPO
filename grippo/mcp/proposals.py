@@ -12,16 +12,19 @@ import json
 import os
 import secrets
 import time
+from collections.abc import Callable
 from dataclasses import asdict, dataclass, field
+from enum import StrEnum
 from pathlib import Path
 from typing import Any
 
-PENDING = "pending"
-DONE = "done"
-FAILED = "failed"
-CANCELLED = "cancelled"
-EXPIRED = "expired"
-STATUSES = frozenset({PENDING, DONE, FAILED, CANCELLED, EXPIRED})
+
+class Status(StrEnum):
+    PENDING = "pending"
+    DONE = "done"
+    FAILED = "failed"
+    CANCELLED = "cancelled"
+    EXPIRED = "expired"
 
 
 @dataclass
@@ -35,18 +38,18 @@ class Proposal:
     binding: str
     created: float
     expires: float
-    status: str = PENDING
+    status: str = Status.PENDING
     result: str = ""
     client: str = ""
     history: list[str] = field(default_factory=list)
 
     @property
     def pending(self) -> bool:
-        return self.status == PENDING
+        return self.status == Status.PENDING
 
 
 class ProposalStore:
-    def __init__(self, directory: Path, *, clock: Any = time.time) -> None:
+    def __init__(self, directory: Path, *, clock: Callable[[], float] = time.time) -> None:
         self.directory = directory
         self._clock = clock
         directory.mkdir(parents=True, exist_ok=True, mode=0o700)
@@ -98,24 +101,22 @@ class ProposalStore:
         except (OSError, ValueError, TypeError):
             return None
         if proposal.pending and self._clock() > proposal.expires:
-            proposal.status = EXPIRED
+            proposal.status = Status.EXPIRED
             self.save(proposal)
         return proposal
 
     def list(self, *, repo: str | None = None, only_pending: bool = False) -> list[Proposal]:
-        found = []
-        for path in sorted(self.directory.glob("p-*.json")):
-            proposal = self.get(path.stem)
-            if proposal is None or (repo and proposal.repo != repo):
-                continue
-            if only_pending and not proposal.pending:
-                continue
-            found.append(proposal)
-        return sorted(found, key=lambda p: p.created)
+        found = (self.get(path.stem) for path in self.directory.glob("p-*.json"))
+        return sorted(
+            (
+                p
+                for p in found
+                if p and (not repo or p.repo == repo) and (p.pending or not only_pending)
+            ),
+            key=lambda p: p.created,
+        )
 
-    def finish(self, proposal: Proposal, status: str, result: str) -> None:
-        if status not in STATUSES:
-            raise ValueError(status)
-        proposal.status = status
+    def finish(self, proposal: Proposal, status: Status, result: str) -> None:
+        proposal.status = Status(status)  # rejects anything that is not a known status
         proposal.result = result
         self.save(proposal)

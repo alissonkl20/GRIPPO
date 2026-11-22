@@ -105,3 +105,22 @@ class PlanResult:
     @property
     def ok(self) -> bool:
         return self.status is StepStatus.DONE
+
+
+MAX_OUTPUT_CHARS = 20_000
+
+
+def format_result(result: PlanResult) -> str:
+    """Plain-text account of a run (commands, output, hints, summary), size-capped."""
+    parts: list[str] = []
+    for step in result.results:
+        header = f"$ {step.command}" if step.command else f"({step.step.op}: {step.status.value})"
+        body = (step.stdout or step.stderr).strip()
+        parts.append(f"{header}\n{body}" if body else header)
+        if step.hint:
+            parts.append(f"dica: {step.hint}")
+    parts.append(result.message)
+    text = "\n".join(parts)
+    return (
+        text if len(text) <= MAX_OUTPUT_CHARS else text[:MAX_OUTPUT_CHARS] + "\n… (saída truncada)"
+    )
