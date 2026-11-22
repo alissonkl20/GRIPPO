@@ -8,6 +8,7 @@ words explicitly ask for them, and they still go through confirmation.
 
 from __future__ import annotations
 
+import os
 import re
 import unicodedata
 from collections.abc import Callable
@@ -112,6 +113,23 @@ def _rule_not_git(t: str, o: str, s: RepoState | None) -> Interpretation | None:
     return None
 
 
+_CONFLICT_QUESTION = re.compile(
+    r"\b(como|porque|por que|pq|expli\w*|entend\w*|ajud\w*|motivo|causa|o que|oque|qual)\b"
+)
+# Commands (or reports of work already done) that merely mention "conflito".
+_CONFLICT_COMMAND = re.compile(
+    r"\b(abort\w*|cancel\w*|continu\w*|prossig\w*|conclu\w*|finaliz\w*|resolvi\w*|"
+    r"fa[cz]\w*|comit\w*|commit\w*|push|envi\w*)\b"
+)
+
+
+def _rule_explain_conflict(t: str, o: str, s: RepoState | None) -> Interpretation | None:
+    """ "como resolvo o conflito?" → explain why it happened (never auto-resolve)."""
+    if "conflit" not in t or not _CONFLICT_QUESTION.search(t) or _CONFLICT_COMMAND.search(t):
+        return None
+    return Interpretation("explain_conflict", reply="", fast=True)
+
+
 def _rule_sequencer(t: str, o: str, s: RepoState | None) -> Interpretation | None:
     action = None
     if re.search(r"\b(abort\w*|cancel\w*)\b", t):
@@ -126,7 +144,47 @@ def _rule_sequencer(t: str, o: str, s: RepoState | None) -> Interpretation | Non
     if not kind:
         return None
     op = f"{kind.replace('-', '_')}_{action}"
-    return Interpretation("execute", [(op, {})], reply=f"{kind} {action}.")
+    steps: list[tuple[str, dict[str, Any]]] = [(op, {})]
+    if action == "continue" and s is not None and s.conflicted:
+        unresolved = _files_with_conflict_markers(s.root, s.conflicted)
+        if unresolved:
+            return Interpretation(
+                "clarify",
+                question="Ainda há marcadores de conflito (<<<<<<<, =======, >>>>>>>) em: "
+                + ", ".join(unresolved)
+                + ". Resolva-os no editor (ou peça ao Claude Code) e peça de novo.",
+            )
+        steps.insert(0, ("add", {"paths": list(s.conflicted)}))
+    return Interpretation("execute", steps, reply=f"{kind} {action}.")
+
+
+def _files_with_conflict_markers(root: str, paths: list[str]) -> list[str]:
+    """Conflicted files that still hold unresolved markers.
+
+    A file that no longer exists was resolved by deleting it; an unreadable one is assumed
+    unresolved.
+    """
+    pending = []
+    for rel in paths:
+        target = os.path.join(root, rel)
+        if not os.path.lexists(target):
+            continue
+        try:
+            with open(target, encoding="utf-8", errors="replace") as handle:
+                text = handle.read()
+        except OSError:
+            pending.append(rel)
+            continue
+        if _has_conflict_markers(text):
+            pending.append(rel)
+    return pending
+
+
+def _has_conflict_markers(text: str) -> bool:
+    return all(
+        re.search(pattern, text, re.MULTILINE)
+        for pattern in (r"^<{7}( |$)", r"^={7}$", r"^>{7}( |$)")
+    )
 
 
 def _rule_commit(t: str, o: str, s: RepoState | None) -> Interpretation | None:
@@ -306,9 +364,13 @@ def _rule_branch(t: str, o: str, s: RepoState | None) -> Interpretation | None:
             [("branch_delete", {"name": name, "force": force})],
             reply=f"Excluir a branch {name}.",
         )
-    if re.search(r"\b(mud\w*|troc\w*|altern\w*|switch|checkout|v(a|ai|á) para|ir para)\b", t):
+    if re.search(
+        r"\b(mud\w*|troc\w*|altern\w*|switch|checkout|v(a|ai|á|olt\w*) (para|pra)"
+        r"|ir (para|pra)|volt\w* (para|pra|a)|retorn\w* (para|pra|a)|go to)\b",
+        t,
+    ):
         name = _first_name_after(
-            r"\b(?:mud\w*|troc\w*|altern\w*|switch|checkout|para|to)"
+            r"\b(?:mud\w*|troc\w*|altern\w*|switch|checkout|para|pra|to|volt\w*|retorn\w*)"
             r"(?:\s+(?:para|pra|to))?(?:\s+(?:a|o|the))?(?:\s+branch)?",
             o,
         )
@@ -428,6 +490,7 @@ def _rule_read(t: str, o: str, s: RepoState | None) -> Interpretation | None:
 
 _RULES: tuple[Rule, ...] = (
     _rule_not_git,
+    _rule_explain_conflict,
     _rule_sequencer,
     _rule_undo,
     _rule_revert,

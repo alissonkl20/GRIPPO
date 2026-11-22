@@ -18,6 +18,7 @@ from __future__ import annotations
 import atexit
 import logging
 import os
+import re
 import shlex
 import shutil
 import signal
@@ -81,6 +82,7 @@ MUTATING_SUBCOMMANDS = frozenset(
         "rm",
         "mv",
         "init",
+        "update-ref",
     }
 )
 ALLOWED_SUBCOMMANDS = READ_ONLY_SUBCOMMANDS | CONDITIONAL_SUBCOMMANDS | MUTATING_SUBCOMMANDS
@@ -233,6 +235,20 @@ def is_read_only(subcommand: str, args: Sequence[str]) -> bool:
     return False
 
 
+BACKUP_REF_PREFIX = "refs/grippo/backup/"
+_BACKUP_REF = re.compile(r"^refs/grippo/backup/[A-Za-z0-9_\-]{1,120}$")
+
+
+def _is_backup_ref_update(args: Sequence[str]) -> bool:
+    """Exactly ``update-ref refs/grippo/backup/<safe-name> <40-hex sha>`` — nothing else."""
+    return (
+        len(args) == 3
+        and bool(_BACKUP_REF.fullmatch(args[1]))
+        and ".." not in args[1]
+        and bool(re.fullmatch(r"[0-9a-f]{40}", args[2]))
+    )
+
+
 def validate_invocation(args: Sequence[str]) -> str:
     """Return the subcommand or raise :class:`CommandRejectedError`."""
     if not args:
@@ -245,6 +261,10 @@ def validate_invocation(args: Sequence[str]) -> str:
     subcommand = args[0]
     if subcommand not in ALLOWED_SUBCOMMANDS:
         raise CommandRejectedError(f"subcomando git não permitido: {subcommand!r}")
+    if subcommand == "update-ref" and not _is_backup_ref_update(args):
+        raise CommandRejectedError(
+            "update-ref só é permitido para criar refs de backup em refs/grippo/backup/"
+        )
     options = _options(args[1:])
     denied = _DENIED_EVERYWHERE + _DENIED_BY_SUBCOMMAND.get(subcommand, ())
     for option in options:

@@ -57,6 +57,11 @@ class SecurityConfig:
     auth_ttl_sec: int = 300
     auto_approve: list[str] = field(default_factory=list)
     protected_branches: list[str] = field(default_factory=lambda: ["main", "master", "develop"])
+    # Refuse to read a confirmation from a pipe/script: only a person at a terminal can approve.
+    # Recommended when an AI agent has shell access to this machine.
+    require_tty: bool = False
+    # Minutes a proposal made by an external AI (MCP) stays approvable.
+    proposal_ttl_min: int = 15
 
 
 @dataclass

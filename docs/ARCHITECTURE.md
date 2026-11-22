@@ -42,9 +42,10 @@ autoriza, executa e verifica. A LLM nunca é a autoridade de segurança.
 | Pacote | Responsabilidade |
 |---|---|
 | `grippo/cli/` | argparse (`main.py`), REPL (`interface.py`), confirmação (`confirm.py`), renderização rich (`renderer.py`). Sem regra de negócio. |
-| `grippo/agent/` | `router.py` (intenções pt/en determinísticas), `planner.py` (intenções → plano), `session.py` (memória limitada), `assistant.py` (um turno completo; usado pela CLI e pela API). |
+| `grippo/agent/` | `router.py` (intenções pt/en determinísticas, inclusive "explique o conflito"), `planner.py` (intenções → plano), `session.py` (memória limitada), `assistant.py` (um turno completo; usado pela CLI e pela API). |
 | `grippo/llm/` | `client.py` (Ollama: pool HTTP, timeouts, JSON schema, 1 inferência por vez, métricas), `interpreter.py`, `commit.py` (seleção de arquivos + mensagem), `prompts.py`. |
-| `grippo/engine/` | `operations.py` (catálogo de 57 operações: parâmetros, argv, risco, impacto, pré-condições, verificação), `plan.py`, `permissions.py` (`GitPermissionManager`), `executor.py`, `audit.py`. |
+| `grippo/engine/` | `operations.py` (catálogo de 57 operações: parâmetros, argv, risco, impacto, pré-condições, verificação), `plan.py`, `permissions.py` (`GitPermissionManager`), `executor.py`, `audit.py`, `guard.py` (aterramento do plano no pedido do usuário), `backup.py` (refs de backup antes de operações destrutivas). |
+| `grippo/mcp/` | servidor MCP (`server.py`, JSON-RPC por stdio), ferramentas (`tools.py`), propostas pendentes (`proposals.py`), aprovação humana (`approval.py`) e configuração de clientes (`setup.py`). Ver [MCP.md](MCP.md). |
 | `grippo/git/` | `runner.py` (único ponto que executa `git`), `validate.py` (refs, revisões, caminhos, URLs), `repo.py` (descoberta), `state.py` (snapshot + fingerprint), `reader.py` (consultas de leitura), `lock.py` (lock leitores/escritor por repositório). |
 | `grippo/manage/` | `doctor`, `bench`, `models`, `update`, `uninstall`, `resources` (medições /proc + nvidia-smi), `install_layout`. |
 | `grippo/api/` | API HTTP opcional (`grippo[api]`), protegida por token, sem endpoint de shell. |

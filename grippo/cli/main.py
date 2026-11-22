@@ -71,6 +71,16 @@ def _parser() -> argparse.ArgumentParser:
         "--yes", action="store_true", help="não perguntar (consentimento explícito)"
     )
 
+    mcp = sub.add_parser("mcp", help="servidor MCP: usar o GRIPPO a partir de outras IAs")
+    mcp.add_argument(
+        "--print-config", action="store_true", help="mostrar a configuração do cliente"
+    )
+
+    approve = sub.add_parser("approve", help="aprovar uma mudança proposta por uma IA")
+    approve.add_argument("id", nargs="?", help="id da proposta (padrão: a única pendente)")
+    sub.add_parser("proposals", help="listar propostas feitas por IAs")
+    sub.add_parser("backups", help="listar backups de segurança criados antes de operações")
+
     uninstall = sub.add_parser("uninstall", help="remover o GRIPPO")
     uninstall.add_argument(
         "--purge",
@@ -159,6 +169,44 @@ def _cmd_config(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_mcp(args: argparse.Namespace) -> int:
+    if args.print_config:
+        from grippo.mcp.setup import render_config
+
+        print(render_config(args.repo))
+        return 0
+    from grippo.mcp.proposals import ProposalStore
+    from grippo.mcp.server import McpServer
+    from grippo.mcp.tools import GrippoTools
+    from grippo.runtime import build_runtime
+
+    runtime = build_runtime(args.repo, use_llm=False)
+    try:
+        store = ProposalStore(runtime.paths.proposals_dir)
+        McpServer(GrippoTools(runtime, store)).serve()
+        return 0
+    finally:
+        runtime.close()
+
+
+def _cmd_backups(args: argparse.Namespace) -> int:
+    from grippo.engine.backup import list_backups
+    from grippo.runtime import build_runtime
+
+    runtime = build_runtime(args.repo, use_llm=False)
+    try:
+        rows = list_backups(runtime.repo.root)
+        if not rows:
+            print("nenhum backup de segurança.")
+        for ref, sha, subject in rows:
+            print(f"{ref}  {sha}  {subject}")
+        if rows:
+            print("\nrecuperar: git reset --hard <ref>   ou   git branch recuperada <ref>")
+        return 0
+    finally:
+        runtime.close()
+
+
 def _dispatch(args: argparse.Namespace) -> int:
     command = args.command
     if command is None:
@@ -196,6 +244,18 @@ def _dispatch(args: argparse.Namespace) -> int:
         return run_update(
             target=args.target, check_only=args.check, include_pre=args.pre, assume_yes=args.yes
         )
+    if command == "mcp":
+        return _cmd_mcp(args)
+    if command == "approve":
+        from grippo.mcp.approval import run_approve
+
+        return run_approve(args.id)
+    if command == "proposals":
+        from grippo.mcp.approval import run_proposals
+
+        return run_proposals()
+    if command == "backups":
+        return _cmd_backups(args)
     if command == "uninstall":
         from grippo.manage.uninstall import run_uninstall
 

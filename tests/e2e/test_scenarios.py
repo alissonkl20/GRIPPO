@@ -61,8 +61,9 @@ def test_scenario2_undo_last_commit_keep_changes(repo):
 def test_scenario3_revert_without_rewriting(repo):
     sha = commit_file(repo, "bad.txt", "bad", "feat: bad change")
     assistant = assistant_for(repo)
-    turn = assistant.handle(f"Quero desfazer as alterações do commit {sha[:8]} sem apagar o "
-                            "histórico.")
+    turn = assistant.handle(
+        f"Quero desfazer as alterações do commit {sha[:8]} sem apagar o histórico."
+    )
     assert turn.prepared.plan.steps[0].op == "revert"
     assert "NOVO commit" in turn.prepared.previews[0].impact.consequences[0]
     result = confirm(assistant, turn)
@@ -103,8 +104,13 @@ def test_scenario5_push_explains_and_sets_upstream(remote_repo):
     assistant = assistant_for(repo)
     turn = assistant.handle("Envie minhas alterações para o remoto.")
     preview = turn.prepared.previews[0]
-    assert preview.step.args == {"remote": "origin", "branch": "feature/x", "set_upstream": True,
-                                 "force": False, "force_with_lease": False}
+    assert preview.step.args == {
+        "remote": "origin",
+        "branch": "feature/x",
+        "set_upstream": True,
+        "force": False,
+        "force_with_lease": False,
+    }
     assert any("feat: x" in c for c in preview.impact.commits)
     assert turn.prepared.needs_confirmation
     result = confirm(assistant, turn)
@@ -113,10 +119,12 @@ def test_scenario5_push_explains_and_sets_upstream(remote_repo):
 
 def test_scripted_llm_pipeline(repo):
     fake = FakeOllama()
-    fake.replies.extend([
-        {"related": False},  # other.txt (form.html matches "formulário" by keyword)
-        {"message": "feat(form): add signup form"},
-    ])
+    fake.replies.extend(
+        [
+            {"related": False},  # other.txt (form.html matches "formulário" by keyword)
+            {"message": "feat(form): add signup form"},
+        ]
+    )
     write(repo, "form.html", "<form>")
     write(repo, "other.txt", "x")
     assistant = assistant_for(repo, fake.client())
@@ -148,8 +156,13 @@ def test_user_session_regressions(remote_repo):
 
 def test_llm_message_must_be_conventional(repo):
     fake = FakeOllama()
-    fake.replies.append({"action": "execute", "reply": "ok", "steps": [
-        {"op": "commit_changes", "args": {"message": "Commit com alterações"}}]})
+    fake.replies.append(
+        {
+            "action": "execute",
+            "reply": "ok",
+            "steps": [{"op": "commit_changes", "args": {"message": "Commit com alterações"}}],
+        }
+    )
     write(repo, "README.md", "x")
     assistant = assistant_for(repo, fake.client())
     fake.replies.append({"message": "docs: update readme"})
@@ -159,14 +172,34 @@ def test_llm_message_must_be_conventional(repo):
     assert any("Conventional" in w for w in turn.prepared.plan.warnings)
 
 
-def test_scripted_llm_destructive_proposal_still_gated(repo):
+def test_vague_request_cannot_become_destructive(repo):
+    """A model that turns "arruma aí" into reset --hard is refused before confirmation."""
     fake = FakeOllama()
-    fake.replies.append({"action": "execute", "reply": "limpando",
-                         "steps": [{"op": "reset", "args": {"mode": "hard",
-                                                            "target": "HEAD"}}]})
+    fake.replies.append(
+        {
+            "action": "execute",
+            "reply": "limpando",
+            "steps": [{"op": "reset", "args": {"mode": "hard", "target": "HEAD"}}],
+        }
+    )
+    write(repo, "README.md", "work")
+    turn = assistant_for(repo, fake.client()).handle("arruma aí")
+    assert turn.kind == "denied" and "destrutiva" in turn.message
+    assert (repo / "README.md").read_text() == "work"
+
+
+def test_explicit_destructive_request_still_gated(repo):
+    fake = FakeOllama()
+    fake.replies.append(
+        {
+            "action": "execute",
+            "reply": "descartando",
+            "steps": [{"op": "reset", "args": {"mode": "hard", "target": "HEAD"}}],
+        }
+    )
     write(repo, "README.md", "work")
     assistant = assistant_for(repo, fake.client())
-    turn = assistant.handle("arruma aí")
+    turn = assistant.handle("descarte minhas alterações locais com reset hard no último commit")
     assert turn.kind == "confirm" and turn.prepared.risk.label == "alto"
     assert (repo / "README.md").read_text() == "work"
     assert assistant.decide(turn.prepared, Decision.CANCEL) is None
@@ -182,8 +215,13 @@ def test_fixes_from_second_session(remote_repo, tmp_path):
     git(repo, "push", "-q", "origin", "main")
     git(repo, "switch", "-q", "develop")
     git(repo, "push", "-q", "-u", "origin", "develop")
-    for name in ("docs/guide.md", "tests/test_a.py", "tests/test_b.py", "CHANGELOG.md",
-                 ".github/workflows/ci.yml"):
+    for name in (
+        "docs/guide.md",
+        "tests/test_a.py",
+        "tests/test_b.py",
+        "CHANGELOG.md",
+        ".github/workflows/ci.yml",
+    ):
         write(repo, name, "x")
     fake = FakeOllama()
     fake.replies.append({"message": "Add initial documentation and CI infrastructure"})
@@ -204,8 +242,10 @@ def test_fixes_from_second_session(remote_repo, tmp_path):
 def test_commit_kind_majority():
     from grippo.llm.commit import commit_kind
 
-    assert commit_kind(["tests/a.py", "tests/b.py", "tests/c.py", "tests/d.py", "README.md"],
-                       set()) == "test"
+    assert (
+        commit_kind(["tests/a.py", "tests/b.py", "tests/c.py", "tests/d.py", "README.md"], set())
+        == "test"
+    )
     assert commit_kind(["docs/a.md", "tests/a.py", "src/x.py"], set()) == "chore"
     assert commit_kind(["src/x.py"], {"src/x.py"}) == "feat"
     assert commit_kind(["CHANGELOG.md", "LICENSE"], set()) == "docs"

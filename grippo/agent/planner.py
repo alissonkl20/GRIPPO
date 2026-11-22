@@ -265,6 +265,13 @@ class Planner:
         base = args.get("base")
         if not base:
             return PlanOutcome("clarify", message="Atualizar com qual branch?")
+        if base == state.branch:
+            return PlanOutcome(
+                "answer",
+                message=f"Você já está em {base}: atualizar uma branch com ela mesma não faz "
+                f"nada (nada foi alterado). Para trazer as novidades do remoto use "
+                f'"faça pull"; para atualizar outra branch, troque para ela antes.',
+            )
         if state.staged or state.unstaged:
             return PlanOutcome(
                 "clarify",

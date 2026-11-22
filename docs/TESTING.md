@@ -20,6 +20,8 @@ bandit -c pyproject.toml -r grippo
 |---|---|---|---|
 | `tests/unit` | mocks (inclui transporte HTTP falso para o Ollama) | validação, parsing, política, mapeamento de erros, fallback | comportamento real do modelo |
 | `tests/git` | Git real | cada operação + verificação posterior, conflitos, remotos bare | — |
+| `tests/safety` | Git real | no-ops, branch protegida, aterramento no pedido, backups (inclusive trabalho não commitado) | — |
+| `tests/mcp` | Git real + JSON-RPC em memória | protocolo, propostas, ausência de ferramenta de aprovar, aprovação humana, guarda anti-alucinação | clientes MCP reais |
 | `tests/security` | Git real | operações protegidas bloqueadas, bypass, injeção, auditoria | — |
 | `tests/concurrency` | Git real, threads e processos | exclusão mútua, isolamento, timeouts de lock | — |
 | `tests/recovery` | Git real | timeout com kill do grupo, git morto, Ctrl-C, repositório corrompido | — |
