@@ -749,6 +749,11 @@ _register(
 def _delete_check(a: Args, c: OpContext) -> list[str]:
     if a["name"] == c.state.branch:
         return ["não é possível excluir a branch atual"]
+    if a["name"] in _PROTECTED:
+        return [
+            f"{a['name']} é uma branch protegida (security.protected_branches): "
+            "exclua manualmente com git se for mesmo necessário"
+        ]
     if not c.reader.branch_exists(a["name"]):
         return [f"branch inexistente: {a['name']}"]
     return []
@@ -815,6 +820,21 @@ def _resolved(rev_key: str) -> Callable[[Args, OpContext], Pre]:
     return pre
 
 
+def _merge_check(a: Args, c: OpContext) -> list[str]:
+    errors = _no_in_progress(a, c) + _needs_head(c) + _rev_errors(c, a["rev"])
+    if a.get("no_ff") and a.get("ff_only"):
+        errors.append("no_ff e ff_only são incompatíveis")
+    if not errors and c.state.head:
+        if _same_as_current(a["rev"], c):
+            errors.append(
+                f"nada a fazer: você já está em {c.state.branch or 'HEAD'}; "
+                "não dá para mesclar uma branch nela mesma"
+            )
+        elif (sha := c.reader.resolve(a["rev"])) and c.reader.is_ancestor(sha, c.state.head):
+            errors.append(f"nada a fazer: {a['rev']} já está contido na branch atual")
+    return errors
+
+
 def _merge_impact(a: Args, c: OpContext) -> Impact:
     incoming = c.reader.commits(f"HEAD..{a['rev']}")
     warnings = [] if incoming else ["nada a integrar: a branch já contém essa revisão"]
@@ -850,12 +870,7 @@ _register(
         risk=Risk.MODERATE,
         mutating=True,
         may_conflict=True,
-        check_fn=lambda a, c: (
-            _no_in_progress(a, c)
-            + _needs_head(c)
-            + _rev_errors(c, a["rev"])
-            + (["no_ff e ff_only são incompatíveis"] if a.get("no_ff") and a.get("ff_only") else [])
-        ),
+        check_fn=_merge_check,
         impact_fn=_merge_impact,
         pre_fn=_resolved("rev"),
         verify_fn=lambda a, p, c, after: (
@@ -947,6 +962,13 @@ _register(
 )
 
 
+def _reset_check(a: Args, c: OpContext) -> list[str]:
+    errors = _needs_head(c) + _rev_errors(c, a["target"])
+    if not errors and a["mode"] == "soft" and c.reader.resolve(a["target"]) == c.state.head:
+        errors.append("nada a fazer: reset --soft para o próprio HEAD não altera nada")
+    return errors
+
+
 def _reset_risk(a: Args, c: OpContext) -> Risk:
     if a["mode"] == "hard":
         return Risk.HIGH
@@ -1000,7 +1022,7 @@ _register(
         risk=Risk.MODERATE,
         mutating=True,
         risk_fn=_reset_risk,
-        check_fn=lambda a, c: _needs_head(c) + _rev_errors(c, a["target"]),
+        check_fn=_reset_check,
         impact_fn=_reset_impact,
         pre_fn=_resolved("target"),
         verify_fn=lambda a, p, c, after: (
@@ -1012,8 +1034,31 @@ _register(
 )
 
 
+def _same_as_current(rev: str, c: OpContext) -> bool:
+    """``rev`` is the current branch (by name) or points at the current HEAD."""
+    return rev == c.state.branch or (bool(c.state.head) and c.reader.resolve(rev) == c.state.head)
+
+
+def _rebase_noop(a: Args, c: OpContext) -> list[str]:
+    if a.get("onto") or not c.state.head:
+        return []
+    upstream = a["upstream"]
+    if _same_as_current(upstream, c):
+        return [
+            f"nada a fazer: você já está em {c.state.branch or 'HEAD'}, que é o próprio "
+            f"{upstream}; rebase de uma branch sobre ela mesma não altera nada"
+        ]
+    sha = c.reader.resolve(upstream)
+    has_merges = c.reader.run(["rev-list", "--merges", "-n1", f"{upstream}..HEAD"]).stdout.strip()
+    if sha and not has_merges and c.reader.is_ancestor(sha, c.state.head):
+        return [f"nada a fazer: a branch atual já está baseada em {upstream}"]
+    return []
+
+
 def _rebase_check(a: Args, c: OpContext) -> list[str]:
     errors = _no_in_progress(a, c) + _needs_head(c) + _rev_errors(c, a["upstream"], a.get("onto"))
+    if not errors:
+        errors += _rebase_noop(a, c)
     if c.state.staged or c.state.unstaged:
         errors.append("rebase exige working tree limpo: faça commit ou stash antes")
     return errors

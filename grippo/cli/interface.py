@@ -10,7 +10,7 @@ from grippo.agent.assistant import TurnResult
 from grippo.cli import renderer
 from grippo.cli.confirm import confirm_and_run
 from grippo.cli.theme import ansi, strip_ansi
-from grippo.engine.permissions import AUTONOMY_LEVELS
+from grippo.engine.permissions import AUTONOMY_LEVELS, Decision
 from grippo.errors import GrippoError
 from grippo.runtime import Runtime
 
@@ -63,6 +63,13 @@ def run_turn(runtime: Runtime, message: str, read: Callable[[str], str]) -> Turn
     ):
         turn = runtime.assistant.handle(message)
     renderer.show_turn(turn)
+    if turn.kind == "confirm" and runtime.config.security.require_tty and not _interactive():
+        renderer.show_error(
+            "security.require_tty está ativo: a confirmação só vale vinda de um terminal "
+            "interativo. Nada foi alterado."
+        )
+        runtime.assistant.decide(turn.prepared, Decision.CANCEL)  # type: ignore[arg-type]
+        return turn
     if turn.kind == "confirm":
         result = confirm_and_run(runtime.assistant, turn, read)
         if result is not None:
@@ -71,6 +78,10 @@ def run_turn(runtime: Runtime, message: str, read: Callable[[str], str]) -> Turn
                 renderer.show_state(result.final_state)
             turn.result = result
     return turn
+
+
+def _interactive() -> bool:
+    return sys.stdin.isatty() and sys.stdout.isatty()
 
 
 def _llm_status(runtime: Runtime) -> None:

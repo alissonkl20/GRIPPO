@@ -25,6 +25,48 @@ class Repository:
         return self.root.name
 
 
+_SKIP_DIRS = frozenset(
+    {"node_modules", "vendor", ".venv", "venv", "__pycache__", "dist", "build", "target", ".cache"}
+)
+
+
+def find_nearby_repositories(start: Path, max_depth: int = 2, limit: int = 8) -> list[Path]:
+    """Repositories in subdirectories (bounded, cheap scan) to suggest to the user."""
+    found: list[Path] = []
+    frontier = [start]
+    for _ in range(max_depth):
+        next_level: list[Path] = []
+        for directory in frontier:
+            try:
+                children = sorted(p for p in directory.iterdir() if p.is_dir())
+            except OSError:
+                continue
+            for child in children:
+                if child.name in _SKIP_DIRS or child.name.startswith("."):
+                    continue
+                if (child / ".git").exists():
+                    found.append(child)
+                    if len(found) >= limit:
+                        return found
+                else:
+                    next_level.append(child)
+        frontier = next_level[:200]
+    return found
+
+
+def _not_a_repo_message(start: Path) -> str:
+    message = f"{start} não está dentro de um repositório Git."
+    nearby = find_nearby_repositories(start)
+    if nearby:
+        listing = "\n".join(f"  cd {p}" for p in nearby)
+        example = nearby[0].relative_to(start)
+        message += (
+            f"\nRepositórios encontrados nas subpastas:\n{listing}\n"
+            f"Ou, sem mudar de pasta: grippo --repo {example}"
+        )
+    return message
+
+
 def discover(start: Path, *, timeout: float = 15.0, paths: AppPaths | None = None) -> Repository:
     start = start.expanduser()
     if not start.exists():
@@ -51,7 +93,7 @@ def discover(start: Path, *, timeout: float = 15.0, paths: AppPaths | None = Non
                 "Veja `git config --global --add safe.directory <caminho>`."
             )
         if "not a git repository" in stderr or "must be run in a work tree" in stderr:
-            raise RepositoryError(f"{start} não está dentro de um repositório Git.")
+            raise RepositoryError(_not_a_repo_message(start))
         raise RepositoryError(f"falha ao identificar repositório: {result.error_text()}")
     lines = result.stdout.splitlines()
     if len(lines) < 4:

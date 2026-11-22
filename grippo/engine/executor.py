@@ -13,6 +13,7 @@ from collections.abc import Iterable, Mapping
 from typing import Any
 
 from grippo.engine.audit import AuditLog
+from grippo.engine.backup import Backup, BackupError, create_backups
 from grippo.engine.operations import OpContext, Risk, get_operation, normalize_args
 from grippo.engine.permissions import Authorization, Decision, GitPermissionManager
 from grippo.engine.plan import (
@@ -101,6 +102,13 @@ def explain(result: GitResult) -> str:
         if any(n in text for n in needles):
             return hint
     return ""
+
+
+def _backup_note(backups: list[Backup]) -> str:
+    lines = ["\nBackup de segurança criado (nada se perde):"]
+    lines += [f"  • {b.what}: {b.ref}" for b in backups]
+    lines.append(f"  recuperar: {backups[0].recovery()}")
+    return "\n".join(lines)
 
 
 class GitExecutor:
@@ -264,6 +272,19 @@ class GitExecutor:
             self.audit.record("denied", reason=str(error), **self._audit_base(state, prepared))
             raise
 
+        try:
+            backups = create_backups(self.repo.root, plan, state, timeout=self.git_timeout)
+        except BackupError as error:
+            reason = f"backup de segurança falhou; nada foi executado ({error})"
+            self.audit.record("denied", reason=reason, **self._audit_base(state, prepared))
+            raise AuthorizationError(reason) from error
+        if backups:
+            self.audit.record(
+                "backup",
+                backups=[{"ref": b.ref, "sha": b.sha, "what": b.what} for b in backups],
+                **self._audit_base(state, prepared),
+            )
+
         results: list[StepResult] = []
         status = StepStatus.DONE
         try:
@@ -280,7 +301,10 @@ class GitExecutor:
             state = self._snapshot()
         for step in plan.steps[len(results) :]:
             results.append(StepResult(step, StepStatus.SKIPPED))
-        return PlanResult(status, results, state, self._summary(status, state))
+        summary = self._summary(status, state)
+        if backups:
+            summary += _backup_note(backups)
+        return PlanResult(status, results, state, summary)
 
     def _run_step(
         self, step: Step, state: RepoState, pre: dict[str, Any] | None, prepared: PreparedPlan

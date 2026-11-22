@@ -84,8 +84,9 @@ def test_interrupt_during_git(repo, monkeypatch):
 
 def test_subprocess_failure_is_reported_not_hidden(repo, tmp_path):
     executor = make_executor(repo)
-    assert run_ops(executor, ("remote_add", {"name": "origin",
-                                             "url": str(tmp_path / "missing.git")})).ok
+    assert run_ops(
+        executor, ("remote_add", {"name": "origin", "url": str(tmp_path / "missing.git")})
+    ).ok
     result = run_ops(executor, ("push", {"set_upstream": True}))
     assert not result.ok and result.results[0].stderr
     assert result.message == "A operação falhou."
@@ -114,8 +115,9 @@ def test_corrupted_repository_gives_clear_error(repo):
 
 def test_corrupted_object_detected(repo, tmp_path):
     executor = make_executor(repo)
-    objects = [p for p in (repo / ".git" / "objects").rglob("*") if p.is_file()
-               and len(p.parent.name) == 2]
+    objects = [
+        p for p in (repo / ".git" / "objects").rglob("*") if p.is_file() and len(p.parent.name) == 2
+    ]
     for obj in objects:
         obj.chmod(0o644)
         obj.write_bytes(b"corrupt")
@@ -145,3 +147,16 @@ def test_conflict_leaves_clear_intermediate_state(repo):
     result = run_ops(make_executor(repo), ("merge", {"rev": "other"}))
     assert result.status is StepStatus.CONFLICT
     assert "estado intermediário" in result.message and "README.md" in result.message
+
+
+def test_outside_repository_suggests_nested_repos(tmp_path):
+    from tests.conftest import init_repo
+
+    init_repo(tmp_path / "projeto" / "app-laravel")
+    (tmp_path / "projeto" / "node_modules" / "lib").mkdir(parents=True)
+    init_repo(tmp_path / "projeto" / "node_modules" / "lib" / "dep")
+    with pytest.raises(RepositoryError) as error:
+        discover(tmp_path / "projeto")
+    text = str(error.value)
+    assert "app-laravel" in text and "grippo --repo app-laravel" in text
+    assert "node_modules" not in text

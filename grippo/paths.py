@@ -65,6 +65,10 @@ class AppPaths:
         return self.state_dir / "cache"
 
     @property
+    def proposals_dir(self) -> Path:
+        return self.state_dir / "proposals"
+
+    @property
     def locks_dir(self) -> Path:
         return self.state_dir / "locks"
 
@@ -85,6 +89,7 @@ class AppPaths:
             self.audit_dir,
             self.cache_dir,
             self.locks_dir,
+            self.proposals_dir,
         ):
             directory.mkdir(parents=True, exist_ok=True, mode=0o700)
 
