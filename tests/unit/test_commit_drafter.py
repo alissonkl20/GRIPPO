@@ -91,3 +91,12 @@ def test_long_message_cut_at_word_boundary():
     msg = normalize_message("feat(core): add functionality to resolve remote revisions and warn about stale")
     assert msg is not None and len(msg) <= 72 and not msg.endswith(" ab")
     assert msg.endswith("warn")
+
+
+def test_scope_with_comma_is_valid_and_never_double_prefixed():
+    from grippo.llm.commit import normalize_message, repair_message
+
+    message = "feat(login, config): update version to v2 and add api file"
+    assert normalize_message(message) == message
+    assert repair_message(message, "chore") is None
+    assert normalize_message("Feat: add x") == "feat: add x"

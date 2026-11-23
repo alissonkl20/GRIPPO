@@ -547,10 +547,13 @@ def _commit_impact(a: Args, c: OpContext) -> Impact:
             c.state.staged,
         )
     recovery = "git reset --soft HEAD~1 desfaz o commit mantendo as alterações"
-    if not c.state.staged:
-        # Previewed before an `add` step of the same plan: the files are listed there.
+    if not c.state.staged or "add" in c.prior_ops:
+        # Previewed before an `add` step of the same plan: the state shown here is the one
+        # *before* that add, so counting staged files would understate the commit.
+        already = f" (+ {len(c.state.staged)} já staged)" if c.state.staged else ""
         return Impact(
-            [f"cria um novo commit em {branch} com os arquivos do passo anterior"], recovery
+            [f"cria um novo commit em {branch} com os arquivos do passo anterior{already}"],
+            recovery,
         )
     return Impact(
         [f"cria um novo commit em {branch} com {len(c.state.staged)} arquivo(s)"],
@@ -852,6 +855,15 @@ def _merge_check(a: Args, c: OpContext) -> list[str]:
 
 
 def _merge_impact(a: Args, c: OpContext) -> Impact:
+    if {"switch", "checkout"} & set(c.prior_ops):
+        # The branch changes in an earlier step: HEAD here is not the merge destination.
+        return Impact(
+            [
+                f"integra {a['rev']} na branch escolhida no passo anterior",
+                "pode gerar conflitos que precisarão ser resolvidos",
+            ],
+            "durante conflito: merge_abort; depois: git reset --merge ORIG_HEAD",
+        )
     incoming = c.reader.commits(f"HEAD..{a['rev']}")
     warnings = [] if incoming else ["nada a integrar: a branch já contém essa revisão"]
     if c.state.staged or c.state.unstaged:
