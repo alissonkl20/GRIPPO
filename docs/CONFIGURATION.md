@@ -54,8 +54,8 @@ grippo config path                      # onde fica cada coisa
 
 | Chave | Padrão | Descrição |
 |---|---|---|
-| `animation` | `true` | guepardo animado ao abrir o modo interativo (~0,6 s) |
-| `animation_cycles` | `2` | ciclos de galope (0–10; `0` = desenho estático) |
+| `animation` | `true` | gato animado (piscando) ao abrir o modo interativo (~1 s) |
+| `animation_cycles` | `2` | ciclos de piscada (0–10; `0` = desenho estático) |
 
 A animação só roda em terminal real com pelo menos 44×18; em pipe, `TERM=dumb` ou
 terminal pequeno ela é omitida. `GRIPPO_NO_ANIMATION=1` desliga; `NO_COLOR` remove as

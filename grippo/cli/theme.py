@@ -1,4 +1,4 @@
-"""Single color palette for the CLI (amber like the cheetah, plus semantic colors).
+"""Single color palette for the CLI (amber accent, gold eye of the cat, plus semantic colors).
 
 ``rich`` styles are used for everything printed through the console; ``ansi()`` builds
 the few prompt strings read by prompt_toolkit. ``NO_COLOR`` disables both.

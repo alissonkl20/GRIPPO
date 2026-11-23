@@ -73,7 +73,7 @@ class LoggingConfig:
 
 @dataclass
 class UIConfig:
-    # Animated cheetah when the interactive mode starts (~0.6 s; skipped off-terminal).
+    # Animated cat (blinking eye) when the interactive mode starts (~1 s; skipped off-terminal).
     animation: bool = True
     animation_cycles: int = 2
 

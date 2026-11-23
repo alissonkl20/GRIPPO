@@ -5,6 +5,11 @@ versionamento: [Semantic Versioning](https://semver.org/lang/pt-BR/).
 
 ## [Unreleased]
 
+### Alterado
+- Cabeçalho do modo interativo: o guepardo ASCII foi substituído pelo gato do ícone do GRIPPO
+  menor, com "GRIPPO" e a versão ao lado; olho dourado que pisca, ~1 s. Sem dependências nem arquivos de imagem
+  em tempo de execução; `[ui]` mantém as mesmas chaves.
+
 ## [0.2.0] - 2026-11-22
 
 ### Adicionado

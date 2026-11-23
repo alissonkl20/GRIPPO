@@ -39,7 +39,7 @@ _MAX_LISTED = 12
 
 
 def show_header(*, animate: bool = True, cycles: int = 2) -> None:
-    """Cheetah header (animated on a real terminal; see grippo/cli/splash.py)."""
+    """Cat header (animated on a real terminal; see grippo/cli/splash.py)."""
     from grippo.cli import splash
 
     splash.show(console.file, __version__, animate=animate, cycles=cycles)

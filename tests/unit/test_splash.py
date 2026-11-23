@@ -21,8 +21,10 @@ def test_frames_are_consistent():
     assert len(splash.RAW_FRAMES) == 4
     for frame in splash.RAW_FRAMES:
         assert len(frame) == splash.HEIGHT
-        assert all(len(line) == splash.WIDTH for line in frame)
-    assert len({frame for frame in splash.RAW_FRAMES}) == 4  # every frame differs
+        assert all(len(line) == splash.ART_WIDTH for line in frame)
+    # every consecutive blink frame differs, so the animation is visible
+    for a, b in zip(splash.RAW_FRAMES, splash.RAW_FRAMES[1:] + splash.RAW_FRAMES[:1], strict=True):
+        assert a != b
 
 
 def test_animation_on_terminal(big_terminal):
@@ -42,8 +44,8 @@ def test_ctrl_c_skips_and_restores_cursor(big_terminal):
         raise KeyboardInterrupt
 
     splash.show(out, "1", env={"TERM": "xterm"}, sleep=interrupt)
-    assert out.getvalue().rstrip().endswith("assistente Git local\x1b[0m")
-    assert "\x1b[?25h" in out.getvalue()
+    assert "GRIPPO" in out.getvalue()
+    assert out.getvalue().endswith("\x1b[?25h")  # cursor restored after Ctrl-C
 
 
 @pytest.mark.parametrize("env,kwargs", [
@@ -67,7 +69,7 @@ def test_pipe_gets_title_only(big_terminal):
 def test_no_color(big_terminal):
     out = FakeTTY()
     splash.show(out, "1", env={"TERM": "xterm", "NO_COLOR": "1"}, sleep=lambda _: None)
-    assert "\x1b[38;5" not in out.getvalue() and "·:" in out.getvalue()
+    assert "\x1b[38;5" not in out.getvalue() and "\u28ff" in out.getvalue()
 
 
 def test_small_terminal_does_not_animate(monkeypatch):
