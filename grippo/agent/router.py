@@ -30,7 +30,7 @@ class Interpretation:
     reply: str = ""
     question: str = ""
     source: str = "router"
-    fast: bool = False  # safe to skip the LLM
+    fast: bool = True  # a matching rule is final; set False only for loose matches
     notes: list[str] = field(default_factory=list)
 
 
@@ -72,6 +72,10 @@ _STOPWORDS = {
     "essa",
     "esse",
     "isso",
+    "chamada",
+    "chamado",
+    "called",
+    "named",
 }
 
 
@@ -126,7 +130,7 @@ def _rule_explain_conflict(t: str, o: str, s: RepoState | None) -> Interpretatio
 
 def _rule_sequencer(t: str, o: str, s: RepoState | None) -> Interpretation | None:
     action = None
-    if re.search(r"\b(abort\w*|cancel\w*)\b", t):
+    if re.search(r"\b(abort\w*|cancel\w*|desist\w*)\b", t):
         action = "abort"
     elif re.search(r"\b(continu\w*|prossig\w*|--continue)\b", t):
         action = "continue"
@@ -153,6 +157,47 @@ def _rule_sequencer(t: str, o: str, s: RepoState | None) -> Interpretation | Non
     return Interpretation("execute", steps, reply=f"{kind} {action}.")
 
 
+_READ_WORDS = re.compile(
+    r"\b(mostr\w*|show|histori\w*|history|log|detalh\w*|lista\w*|qual|quais|diff|"
+    r"diferenc\w*|ultim\w*|last|tag\w*)\b"
+)
+_CREATE_VERB = re.compile(
+    r"\b(faca|faz|fazer|faze|crie|cria|criar|grave|grava|gravar|registre|registra|registrar"
+    r"|envie|envia|enviar|mande|manda|mandar|salve|salva|salvar|prepar(e|a|ar)"
+    r"|comm?it(e|a|ar|em))\b"
+    # "git add + commit", "commit e push": the commit is part of a sequence of actions.
+    r"|\badd\b.*\bcommit|\bcommit\w*\s+e\s+(push|envi|mand|sub)"
+)
+_ALL_CHANGES = re.compile(r"\b(tudo|todas?|todos|everything|all)\b")
+
+
+def _rule_unpushed(t: str, o: str, s: RepoState | None) -> Interpretation | None:
+    """'quais commits eu ainda não enviei': commits ahead of the upstream (read-only)."""
+    if not re.search(
+        r"\bcommits?\b.*\b(nao|ainda nao)\s+(\w+\s+)?(envi\w*|sub\w*|push\w*|mand\w*|publi\w*)"
+        r"|\b(unpushed|not pushed)\b",
+        t,
+    ):
+        return None
+    return Interpretation(
+        "execute", [("log", {"rev": "@{u}..HEAD", "n": 100})], reply="Commits ainda não enviados:"
+    )
+
+
+def _rule_back_to_commit(t: str, o: str, s: RepoState | None) -> Interpretation | None:
+    """'volta tudo pro commit abc1234' is ambiguous (look vs move the branch): ask."""
+    sha = re.search(r"\b" + _SHA + r"\b", t)
+    if not sha or not re.search(r"\b(volt\w*|retorn\w*|go back|back to)\b", t):
+        return None
+    return Interpretation(
+        "clarify",
+        question=f"Voltar para {sha.group(1)} de que jeito? (1) só olhar o código desse commit "
+        f'("faça checkout {sha.group(1)}", não perde nada); (2) mover a branch para ele e '
+        f'manter as alterações ("reset --soft {sha.group(1)}"); (3) mover e DESCARTAR o que '
+        f'veio depois ("reset --hard {sha.group(1)}", destrutivo).',
+    )
+
+
 def _rule_commit(t: str, o: str, s: RepoState | None) -> Interpretation | None:
     if not re.search(r"\bcommit\w*|\bcomita\w*", t) or re.search(
         r"\b(desfa\w*|revert\w*|"
@@ -160,6 +205,14 @@ def _rule_commit(t: str, o: str, s: RepoState | None) -> Interpretation | None:
         t,
     ):
         return None
+    # A question about commits ("mostre o último commit") is not a request to commit.
+    creates = _CREATE_VERB.search(t) or re.match(r"\s*comm?it\w*\b", t)
+    if not creates:
+        # "commit" without a verb that creates one ("volta pro commit anterior", "mostre o
+        # último commit") is a reference to a commit, not a request to make one.
+        return None
+    if re.search(r"\btag\b", t) or (re.search(r"\b" + _SHA + r"\b", t) and not creates):
+        return None  # "tag nesse commit", "volta pro commit abc1234": not a new commit
     if "amend" in t or "emend" in t:
         return None
     match = re.search(r"\b(?:commit\w*|comita\w*)\b(.*)", o, flags=re.IGNORECASE)
@@ -178,6 +231,8 @@ def _rule_commit(t: str, o: str, s: RepoState | None) -> Interpretation | None:
         request,
         flags=re.IGNORECASE,
     )[0].strip()
+    if _ALL_CHANGES.search(t) and not _ALL_CHANGES.search(fold(request)):
+        request = (request + " tudo").strip()  # "salva tudo num commit": keep the "tudo"
     commit_args: dict[str, Any] = {"request": request}
     if branch and fold(branch) not in _STOPWORDS:
         commit_args["branch"] = branch
@@ -249,41 +304,96 @@ def _rule_sync(t: str, o: str, s: RepoState | None) -> Interpretation | None:
         r"\b(atualiz\w*|sincroniz\w*|update|sync)\b.*\b(com|with|a partir d[aoe])\b", t
     ) and not re.search(r"\brebase\b", t):
         return None
-    base = _first_name_after(r"\b(?:com|with|sobre|onto|em|d[aoe])\b", o)
+    o = re.sub(r"\bem cima d[aoe]s?\b", "sobre", o, flags=re.IGNORECASE)
+    base = _first_name_after(r"\b(?:com|with|sobre|onto|em|na|no|d[aoe])\b", o)
     strategy = "rebase" if "rebase" in t else ("merge" if "merge" in t else None)
     if not base:
         return Interpretation("clarify", question="Atualizar com qual branch?")
     args: dict[str, Any] = {"base": base}
     if strategy:
         args["strategy"] = strategy
-    return Interpretation("execute", [("sync_branch", args)], reply=f"Atualizar com {base}.")
+    return Interpretation(
+        "execute", [("sync_branch", args)], reply=f"Atualizar com {base}.", fast=True
+    )
+
+
+_TARGET_AT_END = re.compile(
+    r"\b(?:na|no|em|into|on|para|pra|to)\s+(?:a\s+|o\s+)?(?:branch\s+)?"
+    r"([A-Za-z0-9][\w./-]*)\s*[.!?]?\s*$",
+    flags=re.IGNORECASE,
+)
 
 
 def _rule_merge(t: str, o: str, s: RepoState | None) -> Interpretation | None:
-    if not re.search(r"\b(merge|mescl\w*|integr\w*)\b", t):
+    if not re.search(r"\b(merge|mescl\w*|integr\w*|junt(e|a|ar))\b", t):
         return None
     name = _first_name_after(
-        r"\b(?:merge|mescl\w*|integr\w*)(?:\s+(?:da|de|do|a|the))?"
+        r"\b(?:merge|mescl\w*|integr\w*|junt(?:e|a|ar))(?:\s+(?:da|de|do|a|the))?"
         r"(?:\s+branch)?",
         o,
     )
     if not name:
         return Interpretation("clarify", question="Qual branch devo mesclar na atual?")
-    return Interpretation("execute", [("merge", {"rev": name})], reply=f"Mesclar {name}.")
+    # "faça merge da develop na main": the destination is part of the request. When it is
+    # not the current branch, switch first (the plan re-checks the merge after the switch).
+    steps: list[StepSpec] = []
+    target = _TARGET_AT_END.search(o)
+    dest = _clean_name(target.group(1)) if target else ""
+    current = s.branch if s else None
+    if dest and fold(dest) not in _STOPWORDS and dest not in {name, current}:
+        steps.append(("switch", {"branch": dest}))
+        reply = f"Mudar para {dest} e mesclar {name}."
+    else:
+        reply = f"Mesclar {name}."
+    steps.append(("merge", {"rev": name}))
+    return Interpretation("execute", steps, reply=reply, fast=True)
+
+
+_PR_TERM = re.compile(r"\b(pull request\w*|merge request\w*|prs?)\b")
+_PR_CREATE = re.compile(r"\b(abrir|abra|abre|abro|crie|criar|cria|crio|create|open)\b")
+
+
+def _rule_pr(t: str, o: str, s: RepoState | None) -> Interpretation | None:
+    """Pull requests live on GitHub: GRIPPO reads them (via gh) but never runs `pull`."""
+    if not _PR_TERM.search(t) or re.search(r"\bcommit\w*|\bpush\b|\bpublic\w*", t):
+        return None
+    if _PR_CREATE.search(t):
+        return Interpretation(
+            "answer",
+            reply="O GRIPPO ainda não cria pull requests. Crie pelo GitHub ou com "
+            "`gh pr create`; eu posso listar os PRs abertos com você.",
+            fast=True,
+        )
+    target = _TARGET_AT_END.search(o)
+    branch = _clean_name(target.group(1)) if target else ""
+    return Interpretation(
+        "execute",
+        [("pr_list", {"branch": branch})],
+        reply="Consultando pull requests.",
+        fast=True,
+    )
 
 
 def _rule_publish(t: str, o: str, s: RepoState | None) -> Interpretation | None:
-    if not re.search(r"\b(push|envi\w*|sub(a|ir)|mand\w* (pro|para o) remoto|publi\w*)\b", t):
+    if not re.search(
+        r"\b(push|envie|envia|enviar|sob(e|a)|sub(a|ir|o)|mand\w* (pro|para o) remoto|publi\w*)\b",
+        t,
+    ):
         return None
     if re.search(r"\b(exclu\w*|delet\w*|apag\w*|remov\w*)\b", t):
         return None
     if "lease" in t:
         return Interpretation(
-            "execute", [("push", {"force_with_lease": True})], reply="push --force-with-lease."
+            "execute",
+            [("push", {"force_with_lease": True})],
+            reply="push --force-with-lease.",
+            fast=True,
         )
     if re.search(r"--force\b|\bforce\b|forcad\w*", t):
-        return Interpretation("execute", [("push", {"force": True})], reply="push --force.")
-    return Interpretation("execute", [("publish", {})], reply="Vou enviar seus commits.")
+        return Interpretation(
+            "execute", [("push", {"force": True})], reply="push --force.", fast=True
+        )
+    return Interpretation("execute", [("publish", {})], reply="Vou enviar seus commits.", fast=True)
 
 
 def _rule_pull_fetch(t: str, o: str, s: RepoState | None) -> Interpretation | None:
@@ -331,7 +441,7 @@ def _rule_branch(t: str, o: str, s: RepoState | None) -> Interpretation | None:
             reply=f"Excluir a branch {name}.",
         )
     if re.search(
-        r"\b(mud\w*|troc\w*|altern\w*|switch|checkout|v(a|ai|á|olt\w*) (para|pra)"
+        r"\b(mud(ar|e|a|o)|troc\w*|altern\w*|switch|checkout|v(a|ai|á|olt\w*) (para|pra)"
         r"|ir (para|pra)|volt\w* (para|pra|a)|retorn\w* (para|pra|a)|go to)\b",
         t,
     ):
@@ -373,13 +483,67 @@ def _rule_stash(t: str, o: str, s: RepoState | None) -> Interpretation | None:
         return Interpretation("execute", [(op, {})], reply="Restaurar o stash.")
     if re.search(r"list\w* (os )?stash", t):
         return Interpretation("execute", [("stash_list", {})], reply="Stashes:", fast=True)
-    if re.search(r"\bstash\b|guard\w* (minhas |as )?alteracoes", t):
+    if re.search(
+        r"\bstash\b|(guard\w*|escond\w*|reserv\w*) (minhas |as |meus |os )?"
+        r"(alteracoes|mudancas|modificacoes)",
+        t,
+    ):
         return Interpretation(
             "execute",
             [("stash_push", {"include_untracked": "untracked" in t or "nao rastread" in t})],
             reply="Guardar alterações no stash.",
         )
     return None
+
+
+_FILE = re.compile(r"(?<![\w/.])((?:[\w\-]+/)*(?:[\w\-]+\.[A-Za-z0-9][\w.]*|\.[\w\-][\w.\-]*))")
+
+
+def _rule_refuse_broad(t: str, o: str, s: RepoState | None) -> Interpretation | None:
+    """'apague tudo do repositório': GRIPPO never wipes a repository or its history."""
+    # "sem apagar o histórico" is a safety clause, not a request to erase anything.
+    if re.search(r"\bsem\b", t):
+        return None
+    if re.search(
+        r"\b(apag\w*|delet\w*|exclu\w*|remov\w*)\b.*\b(tudo|todo|todos|repositorio|repo"
+        r"|historico|projeto|git)\b",
+        t,
+    ) and not (
+        re.search(r"\b(branch|arquivo|file|remoto|tag|stash)\b", t)
+        or _FILE.search(o)  # a named file: "remova config.json do git", ".env"
+    ):
+        return Interpretation(
+            "answer",
+            reply="O GRIPPO não apaga o repositório nem o histórico inteiro. Se quiser, "
+            "descarto alterações de arquivos específicos, desfaço um commit ou excluo uma "
+            "branch (nomeada).",
+            fast=True,
+        )
+    return None
+
+
+def _rule_unstage(t: str, o: str, s: RepoState | None) -> Interpretation | None:
+    """'desfaça o add do x.txt': take a file out of the index, keep its content."""
+    if not re.search(
+        r"\bunstage\b|\b(desfa\w*|tir\w*|remov\w*)\b.*\b(add|stage|staging|indice)\b", t
+    ):
+        return None
+    match = _FILE.search(o) or re.search(
+        r"\b(?:arquivo|file|d[aoe])\s+([\w./\-]+)\s*[.!?]?\s*$", o, flags=re.IGNORECASE
+    )
+    if not match:
+        return Interpretation("clarify", question="Qual arquivo devo tirar do stage?")
+    path = match.group(1)
+    if s is not None and path not in s.staged:
+        # "do README" → README.md when exactly one staged file has that name.
+        named = [f for f in s.staged if f.rsplit("/", 1)[-1].lower().startswith(path.lower())]
+        if len(named) == 1:
+            path = named[0]
+    return Interpretation(
+        "execute",
+        [("unstage", {"paths": [path]})],
+        reply=f"Tirar {path} do stage (o conteúdo continua no disco).",
+    )
 
 
 def _rule_discard(t: str, o: str, s: RepoState | None) -> Interpretation | None:
@@ -400,7 +564,25 @@ def _rule_discard(t: str, o: str, s: RepoState | None) -> Interpretation | None:
     return None
 
 
+_URL = re.compile(r"(https?://\S+|ssh://\S+|git@\S+)")
+_VERSION = re.compile(r"\b(v\d+(?:\.\d+)*[\w.\-]*)")
+
+
 def _rule_tags_remotes(t: str, o: str, s: RepoState | None) -> Interpretation | None:
+    if (
+        re.search(r"\btag\b", t)
+        and re.search(r"\b(cri\w*|create|marc\w*|tag this|tag o|tag a)\b", t)
+        and not re.search(r"\b(list\w*|quais|mostr\w*|show)\b", t)
+    ):
+        named = re.search(r"\bas\s+([\w./-]+)", o, flags=re.IGNORECASE)
+        version = _VERSION.search(o)
+        name = named.group(1) if named else (version.group(1) if version else "")
+        name = _clean_name(name) or (
+            _first_name_after(r"\btag(?:\s+(?:chamada|chamado|called|named))?", o) or ""
+        )
+        if not name:
+            return Interpretation("clarify", question="Qual o nome da tag?")
+        return Interpretation("execute", [("tag_create", {"name": name})], reply=f"Tag {name}.")
     if re.search(r"\b(cri\w*|create)\b.*\btag\b", t):
         name = _first_name_after(r"\btag", o)
         if not name:
@@ -408,7 +590,27 @@ def _rule_tags_remotes(t: str, o: str, s: RepoState | None) -> Interpretation | 
         return Interpretation("execute", [("tag_create", {"name": name})], reply=f"Tag {name}.")
     if re.search(r"\btags?\b", t):
         return Interpretation("execute", [("tag_list", {})], reply="Tags:", fast=True)
-    if re.search(r"\bremot(o|os|e|es)\b", t) and not re.search(r"\b(envi|push|pull)", t):
+    if re.search(r"\b(adicion\w*|add|configur\w*|cri\w*)\b.*\bremot\w*", t):
+        url = _URL.search(o)
+        name = _first_name_after(r"\bremot\w*", o)
+        if name and url and url.group(1).startswith(name):
+            name = None  # "adicione um remoto https://…": the URL is not a name
+        if not name or not url:
+            return Interpretation(
+                "clarify",
+                question='Informe o nome e a URL do remoto, ex.: "adicione o remoto origin '
+                'https://…".',
+            )
+        return Interpretation(
+            "execute",
+            [("remote_add", {"name": name, "url": _clean_name(url.group(1))})],
+            reply=f"Adicionar o remoto {name}.",
+        )
+    if (
+        re.search(r"\bremot(o|os|e|es)\b", t)
+        and re.search(r"\b(list\w*|quais|qual|mostr\w*|ver|veja|show|configurad\w*)\b", t)
+        and not re.search(r"\b(envi|push|pull|sob|sub|mand)", t)
+    ):
         return Interpretation("execute", [("remote_list", {})], reply="Remotos:", fast=True)
     return None
 
@@ -435,6 +637,12 @@ def _rule_read(t: str, o: str, s: RepoState | None) -> Interpretation | None:
         return Interpretation(
             "execute", [("show", {"rev": sha.group(2)})], reply="Commit:", fast=True
         )
+    if re.search(
+        r"\b(ultim\w*|last|atual)\s+commit\b|\bcommit (atual|ultimo|mais recente)\b", t
+    ) and re.search(r"\b(mostr\w*|show|detalh\w*|ver|veja|qual|exib\w*)\b", t):
+        return Interpretation(
+            "execute", [("show", {"rev": "HEAD"})], reply="Último commit:", fast=True
+        )
     if re.search(r"\b(log|historico|history)\b", t):
         return Interpretation("execute", [("log", {"n": 20})], reply="Histórico:", fast=True)
     if re.search(r"\bstaged\b|\bcached\b|na staging", t) and re.search(r"diff|mostr|alterac", t):
@@ -445,7 +653,8 @@ def _rule_read(t: str, o: str, s: RepoState | None) -> Interpretation | None:
         return Interpretation("execute", [("diff", {})], reply="Diff:", fast=True)
     if re.search(
         r"\bstatus\b|pendent\w*|o que (foi )?(mudou|alterado|modificado)|alterac\w*"
-        r" (pendentes|atuais|locais)|mostr\w* (o que|as alteracoes)",
+        r" (pendentes|atuais|locais)|mostr\w* (o que|as alteracoes)"
+        r"|quais (arquivos|alteracoes|mudancas)|arquivos? (mudad|alterad|modificad)\w*",
         t,
     ):
         return Interpretation(
@@ -456,15 +665,20 @@ def _rule_read(t: str, o: str, s: RepoState | None) -> Interpretation | None:
 
 _RULES: tuple[Rule, ...] = (
     _rule_not_git,
+    _rule_refuse_broad,
     _rule_explain_conflict,
     _rule_sequencer,
+    _rule_pr,
     _rule_undo,
     _rule_revert,
     _rule_reset,
     _rule_cherry,
+    _rule_unpushed,
+    _rule_back_to_commit,
     _rule_commit,
     _rule_sync,
     _rule_merge,
+    _rule_unstage,
     _rule_discard,
     _rule_publish,
     _rule_pull_fetch,

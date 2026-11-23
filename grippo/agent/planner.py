@@ -15,7 +15,7 @@ from grippo.engine.executor import GitExecutor
 from grippo.engine.plan import Plan
 from grippo.errors import ValidationError
 from grippo.git.state import RepoState
-from grippo.llm.commit import CommitDraft, CommitDrafter, normalize_message
+from grippo.llm.commit import CommitDraft, CommitDrafter, normalize_message, wants_all_changes
 
 
 @dataclass
@@ -98,7 +98,8 @@ class Planner:
         request = str(args.get("request") or "")
         explicit_paths = args.get("paths")
         warnings: list[str] = []
-        if state.staged and not explicit_paths:
+        everything = wants_all_changes(request) and not explicit_paths
+        if state.staged and not explicit_paths and not everything:
             candidates = state.staged
             draft = self.drafter.draft(request, state, self.reader, candidates, staged_only=True)
             steps: list[StepSpec] = []
@@ -106,10 +107,13 @@ class Planner:
                 warnings.append(
                     "somente o que já está staged entra no commit; "
                     f"{len(state.unstaged) + len(state.untracked)} arquivo(s) "
-                    "ficam de fora"
+                    'ficam de fora (diga "commit de tudo" para incluí-los)'
                 )
         else:
-            candidates = list(dict.fromkeys(state.unstaged + list(state.untracked)))
+            # Staged files belong to the pool too: a previous `git add` must not
+            # make "commit de tudo" silently leave the rest behind.
+            pool = state.staged + state.unstaged + list(state.untracked)
+            candidates = list(dict.fromkeys(pool))
             if explicit_paths:
                 wanted = explicit_paths if isinstance(explicit_paths, list) else [explicit_paths]
                 candidates = [
@@ -280,11 +284,26 @@ class Planner:
             )
         remote = state.upstream.split("/", 1)[0] if state.upstream else "origin"
         steps: list[StepSpec] = []
+        warnings: list[str] = []
         target = str(base)
         remote_ref = f"{remote}/{base}"
         if remote in self.reader.remotes() and "/" not in target:
             steps.append(("fetch", {"remote": remote}))
-            if self.reader.resolve(remote_ref) or not self.reader.branch_exists(target):
+            remote_sha = self.reader.resolve(remote_ref)
+            local_sha = self.reader.resolve(target) if self.reader.branch_exists(target) else None
+            if (
+                local_sha
+                and remote_sha
+                and local_sha != remote_sha
+                and (self.reader.is_ancestor(remote_sha, local_sha))
+            ):
+                # The local branch has commits not pushed yet: rebasing/merging onto the
+                # remote copy would silently ignore them.
+                warnings.append(
+                    f"usando {target} local: ela está à frente de {remote_ref} "
+                    "(tem commits ainda não enviados)"
+                )
+            elif remote_sha or not local_sha:
                 target = remote_ref
         elif not self.reader.resolve(target):
             return PlanOutcome("clarify", message=f"Não encontrei a branch {base}.")
@@ -307,7 +326,7 @@ class Planner:
             steps.append(("merge", {"rev": target}))
         else:
             steps.append(("rebase", {"upstream": target}))
-        return steps, [], None
+        return steps, warnings, None
 
     def _undo(
         self, args: dict[str, Any], state: RepoState, prior: list[StepSpec]

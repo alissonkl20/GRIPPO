@@ -32,8 +32,12 @@ from grippo.llm.prompts import MESSAGE_SCHEMA, RELEVANCE_SCHEMA, message_prompt,
 log = logging.getLogger(__name__)
 
 CONVENTIONAL = re.compile(
-    r"^(feat|fix|docs|style|refactor|perf|test|build|ci|chore|revert)(\([\w\-./ ]+\))?!?: \S.{1,}$"
+    r"^(feat|fix|docs|style|refactor|perf|test|build|ci|chore|revert)(\([\w\-./, ]+\))?!?: \S.{1,}$"
 )
+_TYPE_PREFIX = re.compile(
+    r"^(feat|fix|docs|style|refactor|perf|test|build|ci|chore|revert)(?=[(!:])", re.IGNORECASE
+)
+_HAS_PREFIX = re.compile(r"^[A-Za-z]+(\([^)]*\))?!?:\s")
 _DOC_SUFFIXES = {".md", ".rst", ".txt", ".adoc"}
 _PREVIEW_BYTES = 400
 MAX_LLM_RELEVANCE_FILES = 30
@@ -152,6 +156,8 @@ def normalize_message(message: str) -> str | None:
     subject = message.strip().strip("`\"'").splitlines()[0].strip() if message.strip() else ""
     if not subject:
         return None
+    # "Feat: x" / "FIX(api): x" → lower-case type; the rest of the subject is kept.
+    subject = _TYPE_PREFIX.sub(lambda m: m.group(1).lower(), subject, count=1)
     if len(subject) > 72:
         cut = subject[:72]
         subject = (cut.rsplit(" ", 1)[0] if " " in cut[20:] else cut).rstrip(" ,;-")
@@ -160,6 +166,11 @@ def normalize_message(message: str) -> str | None:
 
 def _raw_words(text: str) -> set[str]:
     return set(re.findall(r"[a-z0-9]{3,}", fold(text)))
+
+
+def wants_all_changes(request: str) -> bool:
+    """'commit de tudo' / 'todas as alterações': every change, not only what is staged."""
+    return bool(_raw_words(request) & _ALL_WORDS)
 
 
 def _words(text: str) -> set[str]:
@@ -270,8 +281,8 @@ def repair_message(message: str, kind: str) -> str | None:
     """Keep a good model sentence that only lacks the `type:` prefix."""
     text = message.strip().strip("`\"'").splitlines()[0].strip() if message.strip() else ""
     words = text.split()
-    if len(words) < 3 or ":" in text[:15]:
-        return None
+    if len(words) < 3 or ":" in text[:15] or _HAS_PREFIX.match(text):
+        return None  # too short, or it already has a `type(scope):` prefix
     if words[0].lower() in {"i", "we", "this", "the", "these", "eu", "nós", "este", "esse"}:
         return None  # narrative, not a commit subject
     if text[0].isupper() and (len(text) == 1 or not text[1].isupper()):
@@ -385,6 +396,9 @@ class CommitDrafter:
         notes: list[str],
         metrics: list[LLMMetrics],
     ) -> list[str]:
+        # "tudo"/"todas" is an explicit request for every change, whatever else it names.
+        if wants_all_changes(request):
+            return list(candidates)
         # The project's own name ("commit do grippo") means "this repo", not a topic.
         words = _words(request) - _raw_words(reader.repo.name)
         if not words:

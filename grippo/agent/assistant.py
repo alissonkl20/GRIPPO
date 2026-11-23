@@ -16,8 +16,9 @@ from grippo.engine.guard import grounding_error
 from grippo.engine.permissions import Decision
 from grippo.engine.plan import PlanResult, PreparedPlan
 from grippo.errors import GrippoError
-from grippo.git import conflicts
+from grippo.git import conflicts, github
 from grippo.llm.client import LLMMetrics
+from grippo.llm.commit import wants_all_changes
 from grippo.llm.interpreter import Interpreter
 
 log = logging.getLogger(__name__)
@@ -81,6 +82,16 @@ class Assistant:
             text = conflicts.explain(self.executor.reader, state, self.interpreter.llm)
             self.session.add(message, text)
             return TurnResult("answer", text, interpretation=interpretation, metrics=metrics)
+        if wants_all_changes(message):
+            # "salva tudo num commit": the model may drop the "tudo" from its args; the
+            # user's words decide that every change goes in.
+            for op, args in interpretation.steps:
+                if op == "commit_changes" and not wants_all_changes(str(args.get("request", ""))):
+                    args["request"] = (str(args.get("request") or "") + " tudo").strip()
+        if interpretation.steps and interpretation.steps[0][0] == "pr_list":
+            text = self._pull_requests(interpretation.steps[0][1])
+            self.session.add(message, text)
+            return TurnResult("answer", text, interpretation=interpretation, metrics=metrics)
         outcome = self.planner.plan(interpretation, state)
         if outcome.draft and outcome.draft.metrics:
             metrics.append(outcome.draft.metrics)
@@ -135,6 +146,12 @@ class Assistant:
             return base
         self.session.add(message, f"propôs {_ops(prepared)} (aguardando confirmação)")
         return base
+
+    def _pull_requests(self, args: dict[str, object]) -> str:
+        """Read-only query on GitHub (gh). Never touches the repository."""
+        branch = str(args.get("branch") or "") or None
+        rows = github.list_pull_requests(self.executor.repo.root, branch)
+        return github.format_pull_requests(rows, branch, "open")
 
     def decide(self, prepared: PreparedPlan, decision: Decision) -> PlanResult | None:
         """Apply the user's decision. Returns None if cancelled."""
