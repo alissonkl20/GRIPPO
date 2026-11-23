@@ -9,6 +9,11 @@ versionamento: [Semantic Versioning](https://semver.org/lang/pt-BR/).
 - Cabeçalho do modo interativo: o guepardo ASCII foi substituído pelo gato do ícone do GRIPPO
   menor, com "GRIPPO" e a versão ao lado; olho dourado que pisca, ~1 s. Sem dependências nem arquivos de imagem
   em tempo de execução; `[ui]` mantém as mesmas chaves.
+- README (EN e PT-BR): logo do GRIPPO centralizado (`docs/img/grippo-cat.jpeg`), índice e
+  seção "Features" (antes "What it does").
+
+### Removido
+- `cat.jpeg` da raiz do repositório; a imagem do README passou a ser `docs/img/grippo-cat.jpeg`.
 
 ## [0.2.0] - 2026-11-22
 

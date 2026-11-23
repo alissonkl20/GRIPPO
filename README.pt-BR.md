@@ -2,7 +2,9 @@
 
 **🌐 [English](README.md) · Português (Brasil)**
 
-# 🐆 GRIPPO
+<img src="docs/img/grippo-cat.jpeg" alt="GRIPPO" width="220" />
+
+# GRIPPO
 
 **Seu assistente Git local, em linguagem natural — com a LLM rodando na sua máquina.**
 
@@ -39,6 +41,12 @@ pede sua confirmação e executa por uma camada determinística e auditada.
 [c] confirmar  [n] cancelar  [d] detalhes  [e] editar mensagem:
 ```
 
+**Conteúdo:** [Por que o GRIPPO?](#por-que-o-grippo) · [Funcionalidades](#funcionalidades) ·
+[Instalação](#instalação) · [Uso](#uso) · [Fluxo de trabalho com Claude Code](#fluxo-de-trabalho-com-claude-code) ·
+[Integração com IAs (MCP)](#integração-com-outras-ias-mcp) · [Segurança](#segurança) ·
+[Como funciona](#como-funciona) · [Documentação](#documentação) · [Limitações conhecidas](#limitações-conhecidas) ·
+[Roadmap](#roadmap) · [Contribuindo](#contribuindo) · [Licença](#licença)
+
 ## Por que o GRIPPO?
 
 Você já usa um agente de código (Claude Code, Cursor, Copilot…) para **implementar** a
@@ -55,7 +63,7 @@ tirar de um conflito. É isso que o GRIPPO faz — e só isso.
 | Auditoria de cada operação | ✗ | ✗ | ✓ |
 | Funciona sem LLM (roteador determinístico) | ✓ | ✗ | ✓ |
 
-## O que ele faz
+## Funcionalidades
 
 - **Branches** — criar, trocar, renomear, excluir, listar (inclusive mescladas), definir upstream.
 - **Commits** — escolhe os arquivos que pertencem à entrega, classifica o tipo
