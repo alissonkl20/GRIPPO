@@ -2,7 +2,9 @@
 
 **🌐 English · [Português (Brasil)](README.pt-BR.md)**
 
-# 🐆 GRIPPO
+<img src="docs/img/grippo-cat.jpeg" alt="GRIPPO" width="220" />
+
+# GRIPPO
 
 **Your local Git assistant, in natural language — with the LLM running on your machine.**
 
@@ -44,6 +46,12 @@ asks for your confirmation and runs it through a deterministic, audited layer.
 > risk MODERATE, files to stage, one unrelated file left out, confirm/cancel/details/edit).
 > English requests work through the local LLM; see [Known limitations](#known-limitations).
 
+**Contents:** [Why GRIPPO?](#why-grippo) · [Features](#features) · [Installation](#installation) ·
+[Usage](#usage) · [Workflow with Claude Code](#workflow-with-claude-code) ·
+[Integration with other AIs (MCP)](#integration-with-other-ais-mcp) · [Safety](#safety) ·
+[How it works](#how-it-works) · [Documentation](#documentation) · [Known limitations](#known-limitations) ·
+[Roadmap](#roadmap) · [Contributing](#contributing) · [License](#license)
+
 ## Why GRIPPO?
 
 You already use a coding agent (Claude Code, Cursor, Copilot…) to **implement** the task.
@@ -60,7 +68,7 @@ and get you out of a conflict. That is what GRIPPO does — and nothing else.
 | Audit trail of every operation | ✗ | ✗ | ✓ |
 | Works without an LLM (deterministic router) | ✓ | ✗ | ✓ |
 
-## What it does
+## Features
 
 - **Branches** — create, switch, rename, delete, list (including merged), set upstream.
 - **Commits** — picks the files that belong to the change, classifies the type
